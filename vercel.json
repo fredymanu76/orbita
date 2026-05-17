@@ -1,12 +1,16 @@
 {
   "crons": [
     {
+      "path": "/api/cron/continuity-snapshot",
+      "schedule": "0 5 * * *"
+    },
+    {
       "path": "/api/cron/daily-brief",
       "schedule": "0 6 * * *"
     },
     {
-      "path": "/api/cron/continuity-snapshot",
-      "schedule": "0 5 * * *"
+      "path": "/api/cron/resurface",
+      "schedule": "0 */4 * * *"
     }
   ]
 }
