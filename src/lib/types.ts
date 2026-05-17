@@ -211,7 +211,7 @@ export interface InterruptedThread {
   thread_continuity_score: number
   decay_coefficient: number
   continuity_retention: number
-  status: 'interrupted' | 'recovered' | 'resolved' | 'dismissed'
+  status: 'active' | 'paused' | 'interrupted' | 'dormant' | 'resolved' | 'forgotten' | 'restored' | 'dismissed'
   recovered_at: string | null
   created_at: string
   updated_at: string

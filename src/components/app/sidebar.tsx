@@ -11,6 +11,10 @@ import {
   Users,
   HeartPulse,
   Sparkles,
+  GitBranch,
+  Clock,
+  Network,
+  CalendarClock,
   Settings,
   LogOut,
 } from 'lucide-react'
@@ -22,11 +26,15 @@ const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/capture', label: 'Capture', icon: Mic },
   { href: '/memories', label: 'Memories', icon: Brain },
+  { href: '/timeline', label: 'Timeline', icon: CalendarClock },
   { href: '/recall', label: 'Recall', icon: MessageCircle },
   { href: '/companion', label: 'Companion', icon: Sparkles },
   { href: '/commitments', label: 'Commitments', icon: Handshake },
+  { href: '/follow-ups', label: 'Follow-ups', icon: Clock },
   { href: '/people', label: 'People', icon: Users },
+  { href: '/people/graph', label: 'Relationships', icon: Network },
   { href: '/continuity', label: 'Continuity', icon: HeartPulse },
+  { href: '/continuity/threads', label: 'Threads', icon: GitBranch },
   { href: '/settings', label: 'Settings', icon: Settings },
 ]
 

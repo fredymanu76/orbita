@@ -208,8 +208,10 @@ export default function DashboardPage() {
                       ? cognitiveLoad > 0.7
                         ? '#ef4444'
                         : cognitiveLoad > 0.5
-                          ? '#f59e0b'
-                          : '#10b981'
+                          ? '#f97316'
+                          : cognitiveLoad > 0.3
+                            ? '#f59e0b'
+                            : '#10b981'
                       : '#e2e8f0',
                   }}
                 />
@@ -219,8 +221,10 @@ export default function DashboardPage() {
                   ? cognitiveLoad > 0.7
                     ? 'High — consider focusing on fewer threads'
                     : cognitiveLoad > 0.5
-                      ? 'Moderate — manageable load'
-                      : 'Light — capacity available'
+                      ? 'Elevated — approaching capacity'
+                      : cognitiveLoad > 0.3
+                        ? 'Moderate — manageable load'
+                        : 'Low — capacity available'
                   : 'Measuring...'}
               </p>
             </CardContent>

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import {
   HeartPulse,
   TrendingUp,
@@ -11,8 +12,12 @@ import {
   Users,
   AlertTriangle,
   GitBranch,
+  ArrowRight,
+  Clock,
+  RotateCcw,
 } from 'lucide-react'
-import type { ContinuitySnapshot, ContinuityState, RelationshipEdge } from '@/lib/types'
+import Link from 'next/link'
+import type { ContinuitySnapshot, ContinuityState, RelationshipEdge, InterruptedThread } from '@/lib/types'
 
 const STATE_COLORS: Record<ContinuityState, { bg: string; text: string; label: string }> = {
   stable: { bg: 'bg-emerald-50', text: 'text-emerald-600', label: 'Stable' },
@@ -45,14 +50,18 @@ export default function ContinuityPage() {
   const [history, setHistory] = useState<ContinuitySnapshot[]>([])
   const [neglected, setNeglected] = useState<RelationshipEdge[]>([])
   const [neglectedNames, setNeglectedNames] = useState<Record<string, { a: string; b: string }>>({})
+  const [threads, setThreads] = useState<InterruptedThread[]>([])
+  const [cognitiveLoad, setCognitiveLoad] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     async function fetchData() {
       try {
-        const [continuityRes, neglectedRes] = await Promise.all([
+        const [continuityRes, neglectedRes, threadsRes, loadRes] = await Promise.all([
           fetch('/api/continuity'),
           fetch('/api/relationships?view=neglected'),
+          fetch('/api/threads'),
+          fetch('/api/cognitive-load'),
         ])
 
         if (continuityRes.ok) {
@@ -66,6 +75,16 @@ export default function ContinuityPage() {
         if (neglectedRes.ok) {
           const data = await neglectedRes.json()
           setNeglected(data.relationships || [])
+        }
+
+        if (threadsRes.ok) {
+          const data = await threadsRes.json()
+          setThreads((data.threads || []).slice(0, 5))
+        }
+
+        if (loadRes.ok) {
+          const data = await loadRes.json()
+          setCognitiveLoad(data.reading?.load_score ?? null)
         }
       } catch {
         // Silently fail
@@ -219,6 +238,89 @@ export default function ContinuityPage() {
         </CardContent>
       </Card>
 
+      {/* Cognitive Load */}
+      {cognitiveLoad !== null && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Clock className="h-4 w-4 text-slate-500" />
+              Cognitive Load
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="w-full bg-slate-100 rounded-full h-3 mb-2">
+              <div
+                className="h-3 rounded-full transition-all duration-500"
+                style={{
+                  width: `${cognitiveLoad * 100}%`,
+                  background: cognitiveLoad > 0.7 ? '#ef4444'
+                    : cognitiveLoad > 0.5 ? '#f97316'
+                    : cognitiveLoad > 0.3 ? '#f59e0b'
+                    : '#10b981',
+                }}
+              />
+            </div>
+            <p className="text-xs text-slate-500">
+              {cognitiveLoad > 0.7
+                ? 'High — you are carrying a significant cognitive burden. Focus on fewer threads.'
+                : cognitiveLoad > 0.5
+                  ? 'Elevated — approaching your capacity. Consider resolving or pausing some threads.'
+                  : cognitiveLoad > 0.3
+                    ? 'Moderate — your load is manageable.'
+                    : 'Low — you have cognitive capacity available.'}
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Active Threads */}
+      {threads.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <GitBranch className="h-4 w-4 text-violet-500" />
+              Interrupted Threads
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {threads.map(thread => (
+              <div key={thread.id} className="p-3 rounded-lg bg-violet-50/30">
+                <div className="flex items-center gap-2 mb-1">
+                  <p className="text-sm font-medium text-slate-700 truncate flex-1">{thread.title}</p>
+                  <Badge variant="outline" className="text-[10px]">{thread.status}</Badge>
+                </div>
+                {thread.thread_summary && (
+                  <p className="text-xs text-slate-500 line-clamp-1 mb-1">{thread.thread_summary}</p>
+                )}
+                <div className="flex items-center gap-3 text-[11px] text-slate-400">
+                  <span>Retention: {Math.round(thread.continuity_retention * 100)}%</span>
+                  <span>Score: {(thread.interruption_score * 100).toFixed(0)}%</span>
+                  <div className="flex-1" />
+                  <div className="w-16 bg-slate-100 rounded-full h-1">
+                    <div
+                      className="h-1 rounded-full"
+                      style={{
+                        width: `${thread.continuity_retention * 100}%`,
+                        backgroundColor: thread.continuity_retention > 0.6 ? '#10b981'
+                          : thread.continuity_retention > 0.3 ? '#f59e0b' : '#ef4444',
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+            <div className="pt-1">
+              <Link href="/continuity/threads">
+                <Button variant="ghost" size="sm" className="text-xs text-slate-400">
+                  View all threads
+                  <ArrowRight className="h-3 w-3 ml-1" />
+                </Button>
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Relationship Insights */}
       {neglected.length > 0 && (
         <Card>
@@ -230,16 +332,29 @@ export default function ContinuityPage() {
           </CardHeader>
           <CardContent className="space-y-2">
             <p className="text-xs text-slate-400 mb-2">People you may want to reconnect with</p>
-            {neglected.map(edge => (
-              <div key={edge.id} className="flex items-center justify-between p-2 rounded bg-blue-50/50 text-sm">
-                <span className="text-slate-600">
-                  Relationship (strength: {(edge.relationship_strength * 100).toFixed(0)}%)
-                </span>
-                <span className="text-xs text-slate-400">
-                  Last interaction: {edge.last_interaction ? new Date(edge.last_interaction).toLocaleDateString() : 'Unknown'}
-                </span>
-              </div>
-            ))}
+            {neglected.map(edge => {
+              const daysSince = edge.last_interaction
+                ? Math.floor((Date.now() - new Date(edge.last_interaction).getTime()) / (1000 * 60 * 60 * 24))
+                : null
+              return (
+                <div key={edge.id} className="flex items-center justify-between p-2 rounded bg-blue-50/50 text-sm">
+                  <span className="text-slate-600">
+                    Strength: {(edge.relationship_strength * 100).toFixed(0)}%
+                  </span>
+                  <span className="text-xs text-slate-400">
+                    {daysSince !== null ? `${daysSince}d since last interaction` : 'No recent interaction'}
+                  </span>
+                </div>
+              )
+            })}
+            <div className="pt-1">
+              <Link href="/people/graph">
+                <Button variant="ghost" size="sm" className="text-xs text-slate-400">
+                  View relationship graph
+                  <ArrowRight className="h-3 w-3 ml-1" />
+                </Button>
+              </Link>
+            </div>
           </CardContent>
         </Card>
       )}

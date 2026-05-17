@@ -4,9 +4,9 @@ import { useRef, useEffect, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Sparkles, Send, RefreshCw } from 'lucide-react'
+import { Sparkles, Send, RefreshCw, GitBranch, AlertCircle, RotateCcw } from 'lucide-react'
 import { useCompanion } from '@/hooks/use-companion'
-import type { ContinuityState } from '@/lib/types'
+import type { ContinuityState, InterruptedThread, FollowUpCandidate } from '@/lib/types'
 
 const STATE_COLORS: Record<ContinuityState, string> = {
   stable: 'bg-emerald-50 text-emerald-600',
@@ -15,6 +15,9 @@ const STATE_COLORS: Record<ContinuityState, string> = {
   high_discontinuity: 'bg-orange-50 text-orange-600',
   critical: 'bg-red-50 text-red-600',
 }
+
+type ThreadSuggestion = InterruptedThread & { decay_adjusted_score?: number }
+type FollowUpSuggestion = FollowUpCandidate & { decay_adjusted_urgency?: number }
 
 export default function CompanionPage() {
   const {
@@ -29,7 +32,33 @@ export default function CompanionPage() {
   } = useCompanion()
 
   const [input, setInput] = useState('')
+  const [threads, setThreads] = useState<ThreadSuggestion[]>([])
+  const [followUps, setFollowUps] = useState<FollowUpSuggestion[]>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  // Fetch proactive suggestions when context window opens
+  useEffect(() => {
+    if (!isOpen) return
+    async function fetchSuggestions() {
+      try {
+        const [threadsRes, followUpsRes] = await Promise.all([
+          fetch('/api/threads'),
+          fetch('/api/follow-ups'),
+        ])
+        if (threadsRes.ok) {
+          const data = await threadsRes.json()
+          setThreads((data.threads || []).slice(0, 3))
+        }
+        if (followUpsRes.ok) {
+          const data = await followUpsRes.json()
+          setFollowUps((data.follow_ups || []).slice(0, 3))
+        }
+      } catch {
+        // Non-critical
+      }
+    }
+    fetchSuggestions()
+  }, [isOpen])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -92,6 +121,58 @@ export default function CompanionPage() {
                 Close window
               </button>
             </div>
+          )}
+
+          {/* Proactive Suggestions */}
+          {(threads.length > 0 || followUps.length > 0) && messages.length <= 1 && (
+            <Card>
+              <CardContent className="pt-4 pb-4 space-y-3">
+                {threads.length > 0 && (
+                  <div>
+                    <p className="text-xs font-medium text-slate-500 mb-2 flex items-center gap-1.5">
+                      <GitBranch className="h-3 w-3" />
+                      Threads that may need your attention
+                    </p>
+                    <div className="space-y-1.5">
+                      {threads.map(thread => (
+                        <button
+                          key={thread.id}
+                          onClick={() => send(`Help me restore context on: ${thread.title}`)}
+                          className="w-full text-left p-2 rounded-lg bg-violet-50/50 hover:bg-violet-50 transition-colors text-sm"
+                        >
+                          <p className="text-slate-700 font-medium truncate">{thread.title}</p>
+                          <p className="text-[11px] text-slate-400 mt-0.5">
+                            Retention: {Math.round(thread.continuity_retention * 100)}% — {thread.status}
+                          </p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {followUps.length > 0 && (
+                  <div>
+                    <p className="text-xs font-medium text-slate-500 mb-2 flex items-center gap-1.5">
+                      <AlertCircle className="h-3 w-3" />
+                      Follow-ups that may have been forgotten
+                    </p>
+                    <div className="space-y-1.5">
+                      {followUps.map(fu => (
+                        <button
+                          key={fu.id}
+                          onClick={() => send(`What was the context around: ${fu.description}`)}
+                          className="w-full text-left p-2 rounded-lg bg-amber-50/50 hover:bg-amber-50 transition-colors text-sm"
+                        >
+                          <p className="text-slate-700 truncate">{fu.description}</p>
+                          <p className="text-[11px] text-slate-400 mt-0.5">
+                            {fu.detected_intent}
+                          </p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           )}
 
           {/* Messages */}
