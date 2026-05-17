@@ -1,12 +1,24 @@
 /**
  * Email delivery for Continuum resurfacing.
- * Uses Resend API (https://resend.com) — no npm package needed.
  *
- * Environment variable: RESEND_API_KEY
+ * Supports two providers:
+ *   1. RegNexus Mail (own infrastructure) — set MAIL_PROVIDER=regnexus
+ *   2. Resend (fallback) — set MAIL_PROVIDER=resend
+ *
+ * Environment variables:
+ *   MAIL_PROVIDER — "regnexus" | "resend" (default: regnexus)
+ *   MAIL_FROM — sender address (default: continuity@regnexus.co.uk)
+ *
+ *   For RegNexus:
+ *     REGNEXUS_MAIL_URL — your mail API endpoint
+ *     REGNEXUS_MAIL_KEY — API key for your mail service
+ *
+ *   For Resend (fallback):
+ *     RESEND_API_KEY — Resend API key
  */
 
-const RESEND_API_URL = 'https://api.resend.com/emails'
-const FROM_ADDRESS = 'Continuum <continuity@resend.dev>'
+const MAIL_PROVIDER = process.env.MAIL_PROVIDER || 'regnexus'
+const MAIL_FROM = process.env.MAIL_FROM || 'Continuum <continuity@regnexus.co.uk>'
 
 interface EmailOptions {
   to: string
@@ -16,21 +28,74 @@ interface EmailOptions {
 }
 
 export async function sendEmail(options: EmailOptions): Promise<boolean> {
+  if (MAIL_PROVIDER === 'regnexus') {
+    return sendViaRegNexus(options)
+  }
+  return sendViaResend(options)
+}
+
+/**
+ * Send via RegNexus own mail infrastructure.
+ * Expects a REST API endpoint that accepts POST with JSON body.
+ */
+async function sendViaRegNexus(options: EmailOptions): Promise<boolean> {
+  const mailUrl = process.env.REGNEXUS_MAIL_URL
+  const mailKey = process.env.REGNEXUS_MAIL_KEY
+
+  if (!mailUrl || !mailKey) {
+    console.warn('REGNEXUS_MAIL_URL or REGNEXUS_MAIL_KEY not set — trying Resend fallback')
+    return sendViaResend(options)
+  }
+
+  try {
+    const response = await fetch(mailUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${mailKey}`,
+        'X-API-Key': mailKey,
+      },
+      body: JSON.stringify({
+        from: MAIL_FROM,
+        to: options.to,
+        subject: options.subject,
+        html: options.html,
+        text: options.text || '',
+      }),
+    })
+
+    if (!response.ok) {
+      const error = await response.text()
+      console.error('RegNexus mail send failed:', error)
+      return false
+    }
+
+    return true
+  } catch (error) {
+    console.error('RegNexus mail delivery error:', error)
+    return false
+  }
+}
+
+/**
+ * Fallback: Send via Resend API
+ */
+async function sendViaResend(options: EmailOptions): Promise<boolean> {
   const apiKey = process.env.RESEND_API_KEY
   if (!apiKey) {
-    console.warn('RESEND_API_KEY not set — email delivery disabled')
+    console.warn('No mail provider configured — email delivery disabled')
     return false
   }
 
   try {
-    const response = await fetch(RESEND_API_URL, {
+    const response = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        from: FROM_ADDRESS,
+        from: MAIL_FROM,
         to: [options.to],
         subject: options.subject,
         html: options.html,
@@ -40,13 +105,13 @@ export async function sendEmail(options: EmailOptions): Promise<boolean> {
 
     if (!response.ok) {
       const error = await response.text()
-      console.error('Email send failed:', error)
+      console.error('Resend email send failed:', error)
       return false
     }
 
     return true
   } catch (error) {
-    console.error('Email delivery error:', error)
+    console.error('Resend email delivery error:', error)
     return false
   }
 }
