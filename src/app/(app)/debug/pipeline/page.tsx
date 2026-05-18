@@ -50,11 +50,15 @@ export default function DebugPipelinePage() {
     }
   }
 
-  const reprocess = async () => {
+  const reprocess = async (force: boolean = false) => {
     setReprocessing(true)
     setReprocessResult(null)
     try {
-      const res = await fetch('/api/memories/reprocess', { method: 'POST' })
+      const res = await fetch('/api/memories/reprocess', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ force }),
+      })
       const json = await res.json()
       setReprocessResult(json.message || JSON.stringify(json))
       await fetchData()
@@ -106,11 +110,18 @@ export default function DebugPipelinePage() {
             Refresh
           </button>
           <button
-            onClick={reprocess}
+            onClick={() => reprocess(false)}
             disabled={reprocessing}
             className="px-3 py-1.5 text-sm bg-blue-600 text-white hover:bg-blue-700 rounded-md disabled:opacity-50 transition-colors"
           >
-            {reprocessing ? 'Reprocessing...' : 'Reprocess All'}
+            {reprocessing ? 'Reprocessing...' : 'Reprocess Pending'}
+          </button>
+          <button
+            onClick={() => reprocess(true)}
+            disabled={reprocessing}
+            className="px-3 py-1.5 text-sm bg-red-600 text-white hover:bg-red-700 rounded-md disabled:opacity-50 transition-colors"
+          >
+            Force Reprocess All
           </button>
         </div>
       </div>
@@ -198,9 +209,11 @@ export default function DebugPipelinePage() {
                   {m.summary && (
                     <p className="text-slate-500 text-xs mt-1 truncate">Summary: {m.summary}</p>
                   )}
-                  {m.processing_error && (
+                  {m.processing_error && m.processing_error.startsWith('TRACE:') ? (
+                    <PipelineTrace trace={m.processing_error.slice(6)} />
+                  ) : m.processing_error ? (
                     <p className="text-red-600 text-xs mt-1 break-all">Error: {m.processing_error}</p>
-                  )}
+                  ) : null}
                 </div>
                 <div className="text-xs text-slate-400 whitespace-nowrap">
                   {new Date(m.created_at).toLocaleDateString()}
@@ -212,6 +225,27 @@ export default function DebugPipelinePage() {
       </div>
     </div>
   )
+}
+
+function PipelineTrace({ trace }: { trace: string }) {
+  try {
+    const steps = JSON.parse(trace) as { step: string; status: string; detail?: string }[]
+    return (
+      <div className="mt-2 space-y-1">
+        {steps.map((s, i) => (
+          <div key={i} className="flex items-start gap-2 text-xs">
+            <span className={`font-mono ${s.status === 'ok' ? 'text-green-600' : s.status === 'skipped' ? 'text-amber-600' : 'text-red-600'}`}>
+              {s.status === 'ok' ? 'OK' : s.status === 'skipped' ? 'SKIP' : 'ERR'}
+            </span>
+            <span className="font-medium text-slate-600 min-w-[120px]">{s.step}</span>
+            {s.detail && <span className="text-slate-500 break-all">{s.detail}</span>}
+          </div>
+        ))}
+      </div>
+    )
+  } catch {
+    return <p className="text-slate-500 text-xs mt-1">{trace}</p>
+  }
 }
 
 function StatCard({ label, value, color = 'slate' }: { label: string; value: number; color?: string }) {

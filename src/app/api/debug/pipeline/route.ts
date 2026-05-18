@@ -80,7 +80,7 @@ export async function GET() {
   // Summary stats
   const total = (memories || []).length
   const processed = (memories || []).filter(m => m.processed).length
-  const failed = (memories || []).filter(m => m.processing_error).length
+  const failed = (memories || []).filter(m => m.processing_error && !m.processing_error.startsWith('TRACE:')).length
   const pending = total - processed
 
   // Counts from related tables

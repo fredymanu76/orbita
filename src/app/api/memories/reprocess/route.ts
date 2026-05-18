@@ -15,7 +15,59 @@ export async function POST(request: Request) {
 
   const admin = createAdminClient()
 
-  // Find all unprocessed memories for this user
+  // Check if force=true was passed (reprocess ALL memories, including already processed ones)
+  let force = false
+  try {
+    const body = await request.json()
+    force = body?.force === true
+  } catch {
+    // No body or invalid JSON — that's fine, default to non-force
+  }
+
+  if (force) {
+    // Reset ALL memories to unprocessed so they get reprocessed with new extraction logic
+    await admin
+      .from('memory_items')
+      .update({
+        processed: false,
+        processing_error: null,
+        extraction_confidence: null,
+        primary_thread_id: null,
+      })
+      .eq('user_id', user.id)
+
+    // Clean up derived data so it gets recreated fresh
+    // Delete thread_captures, thread_entities, threads for this user
+    const { data: userThreads } = await admin
+      .from('threads')
+      .select('id')
+      .eq('user_id', user.id)
+
+    if (userThreads && userThreads.length > 0) {
+      const threadIds = userThreads.map(t => t.id)
+      await admin.from('thread_captures').delete().in('thread_id', threadIds)
+      await admin.from('thread_entities').delete().in('thread_id', threadIds)
+      await admin.from('threads').delete().eq('user_id', user.id)
+    }
+
+    // Delete memory_people links for this user's memories
+    const { data: userMemories } = await admin
+      .from('memory_items')
+      .select('id')
+      .eq('user_id', user.id)
+    if (userMemories && userMemories.length > 0) {
+      await admin.from('memory_people').delete().in('memory_id', userMemories.map(m => m.id))
+    }
+    // Delete people so they get recreated from extraction
+    await admin.from('people').delete().eq('user_id', user.id)
+    await admin.from('commitments').delete().eq('user_id', user.id)
+    await admin.from('follow_up_candidates').delete().eq('user_id', user.id)
+    // Delete cognitive graph
+    await admin.from('cognitive_graph_edges').delete().eq('user_id', user.id)
+    await admin.from('cognitive_graph_nodes').delete().eq('user_id', user.id)
+  }
+
+  // Find all unprocessed memories
   const { data: unprocessed, error } = await admin
     .from('memory_items')
     .select('id, raw_content, created_at')
@@ -31,7 +83,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ message: 'No unprocessed memories found', processed: 0 })
   }
 
-  // Clear any stale processing errors before retrying
+  // Clear processing errors
   await admin
     .from('memory_items')
     .update({ processing_error: null })
@@ -50,7 +102,7 @@ export async function POST(request: Request) {
     }
   }
 
-  // Delete today's daily brief cache so a fresh one generates with real data
+  // Delete today's daily brief cache
   const today = new Date().toISOString().split('T')[0]
   await admin
     .from('daily_briefs')
