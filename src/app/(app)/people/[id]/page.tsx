@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react'
 import { use } from 'react'
 import { useRouter } from 'next/navigation'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
+import { RetentionBar } from '@/components/charts/retention-bar'
+import { TypeChip } from '@/components/ui/type-chip'
 import {
   ArrowLeft,
   Brain,
@@ -68,14 +69,12 @@ export default function PersonDetailPage({ params }: { params: Promise<{ id: str
         setMemories(data.memories || [])
         setCommitments(data.commitments || [])
 
-        // Fetch threads this person appears in
         const threadsRes = await fetch(`/api/threads?person_id=${id}`)
         if (threadsRes.ok) {
           const threadsData = await threadsRes.json()
           setThreads(threadsData.threads || [])
         }
 
-        // Compute emotional context from memories
         const tones: string[] = (data.memories || [])
           .map((m: MemorySummary) => m.emotional_tone)
           .filter((t: string | null): t is string => t !== null && t !== 'neutral')
@@ -94,9 +93,9 @@ export default function PersonDetailPage({ params }: { params: Promise<{ id: str
 
   if (loading || !person) {
     return (
-      <div className="max-w-3xl mx-auto space-y-6 px-1">
+      <div className="max-w-4xl mx-auto space-y-6 px-1">
         <div className="h-7 bg-slate-100/60 rounded w-48 animate-pulse" />
-        <div className="h-32 bg-slate-50/60 rounded-lg animate-pulse" />
+        <div className="h-32 bg-slate-50/60 rounded-xl animate-pulse" />
       </div>
     )
   }
@@ -108,20 +107,30 @@ export default function PersonDetailPage({ params }: { params: Promise<{ id: str
   const activeCommitments = commitments.filter(c => c.status === 'active')
   const overdueCommitments = commitments.filter(c => c.status === 'active' && c.due_date && c.due_date < format(new Date(), 'yyyy-MM-dd'))
 
+  function getRecencyBg(days: number | null): string {
+    if (days === null) return 'bg-blue-50 text-blue-500'
+    if (days > 14) return 'bg-red-50 text-red-500'
+    if (days > 7) return 'bg-amber-50 text-amber-500'
+    return 'bg-blue-50 text-blue-500'
+  }
+
+  function getRecencyRing(days: number | null): string {
+    if (days === null) return 'ring-slate-200'
+    if (days > 14) return 'ring-red-300'
+    if (days > 7) return 'ring-amber-300'
+    return 'ring-emerald-300'
+  }
+
   return (
-    <div className="max-w-3xl mx-auto space-y-8 px-1">
+    <div className="max-w-4xl mx-auto space-y-8 px-1">
       {/* Back */}
       <button onClick={() => router.back()} className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-500">
         <ArrowLeft className="h-3 w-3" /> Back
       </button>
 
-      {/* Person header — ambient, not card-heavy */}
+      {/* Person header */}
       <div className="flex items-center gap-4">
-        <div className={`w-14 h-14 rounded-full flex items-center justify-center text-lg font-medium ${
-          daysSinceContact !== null && daysSinceContact > 14 ? 'bg-red-50 text-red-500' :
-          daysSinceContact !== null && daysSinceContact > 7 ? 'bg-amber-50 text-amber-500' :
-          'bg-blue-50 text-blue-500'
-        }`}>
+        <div className={`w-14 h-14 rounded-full flex items-center justify-center text-lg font-medium ring-2 ${getRecencyRing(daysSinceContact)} ${getRecencyBg(daysSinceContact)}`}>
           {person.name[0]}
         </div>
         <div>
@@ -141,12 +150,12 @@ export default function PersonDetailPage({ params }: { params: Promise<{ id: str
         </div>
       </div>
 
-      {/* Context reconstruction summary — deterministic */}
-      <div className="rounded-lg bg-slate-50/80 px-5 py-4">
+      {/* Context reconstruction summary */}
+      <div className="rounded-xl bg-white/80 border border-slate-100 px-5 py-4">
         <div className="flex items-center justify-between text-xs text-slate-400">
           <div className="flex items-center gap-6">
-            <span className="flex items-center gap-1"><GitBranch className="h-3 w-3" /> {threads.length} threads</span>
-            <span className="flex items-center gap-1"><Handshake className="h-3 w-3" /> {activeCommitments.length} active commitments</span>
+            <span className="flex items-center gap-1"><GitBranch className="h-3 w-3" /> {threads.length} open loops</span>
+            <span className="flex items-center gap-1"><Handshake className="h-3 w-3" /> {activeCommitments.length} active promises</span>
             {overdueCommitments.length > 0 && (
               <span className="flex items-center gap-1 text-red-400"><Clock className="h-3 w-3" /> {overdueCommitments.length} overdue</span>
             )}
@@ -157,24 +166,24 @@ export default function PersonDetailPage({ params }: { params: Promise<{ id: str
         </div>
       </div>
 
-      {/* Threads this person appears in */}
+      {/* Threads */}
       {threads.length > 0 && (
         <div>
-          <p className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-3">Threads</p>
+          <p className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-3">Open loops</p>
           <div className="space-y-2">
             {threads.map(thread => (
               <Link key={thread.id} href={`/continuity/threads/${thread.id}`}>
-                <div className="flex items-center justify-between px-4 py-3 rounded-lg bg-white hover:bg-slate-50/50 transition-colors cursor-pointer">
+                <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-white/80 hover:bg-white transition-colors cursor-pointer">
                   <div className="flex items-center gap-2.5 min-w-0">
                     <GitBranch className="h-3.5 w-3.5 text-slate-300" />
                     <span className="text-sm text-slate-600 truncate">{thread.title}</span>
-                    <Badge variant="outline" className="text-[10px] py-0 border-0 bg-slate-50 text-slate-400">
-                      {thread.thread_type}
-                    </Badge>
+                    <TypeChip type={thread.thread_type} />
                   </div>
-                  <div className="flex items-center gap-3 text-[11px] text-slate-300 flex-shrink-0">
-                    <span>{thread.status.replace('_', ' ')}</span>
-                    <span>{Math.round(thread.continuity_retention * 100)}%</span>
+                  <div className="flex items-center gap-3 flex-shrink-0">
+                    <Badge variant="outline" className="text-[10px] py-0 border-0 bg-slate-50 text-slate-400">
+                      {({active:'Active',unresolved:'Needs closure',paused:'On hold',completed:'Done',forgotten_risk:'Slipping',emotionally_sensitive:'Sensitive',time_sensitive:'Time-sensitive'} as Record<string,string>)[thread.status] || thread.status.replace(/_/g, ' ')}
+                    </Badge>
+                    <RetentionBar value={thread.continuity_retention} showLabel />
                   </div>
                 </div>
               </Link>
@@ -186,10 +195,10 @@ export default function PersonDetailPage({ params }: { params: Promise<{ id: str
       {/* Commitments */}
       {commitments.length > 0 && (
         <div>
-          <p className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-3">Commitments</p>
+          <p className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-3">Promises</p>
           <div className="space-y-1.5">
             {commitments.map(c => (
-              <div key={c.id} className="flex items-center justify-between px-4 py-2.5 rounded-lg bg-white text-sm">
+              <div key={c.id} className="flex items-center justify-between px-4 py-2.5 rounded-xl bg-white/80 text-sm">
                 <div className="flex items-center gap-2.5">
                   {c.direction === 'outgoing' ? (
                     <ArrowUpRight className="h-3.5 w-3.5 text-blue-400" />
@@ -221,17 +230,17 @@ export default function PersonDetailPage({ params }: { params: Promise<{ id: str
         </div>
       )}
 
-      {/* Memory timeline — chronological context */}
+      {/* Memory timeline */}
       <div>
         <p className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-3">
-          Capture history
+          History
         </p>
         {memories.length === 0 ? (
           <p className="text-sm text-slate-300 py-6 text-center">No captures mentioning {person.name}.</p>
         ) : (
           <div className="pl-4 border-l border-slate-100 space-y-1">
             {memories.map(memory => (
-              <div key={memory.id} className="flex items-start gap-2.5 py-2 px-2 rounded-md">
+              <div key={memory.id} className="flex items-start gap-2.5 py-2 px-2 rounded-lg">
                 <div className="relative -ml-[21px] mt-1.5">
                   <div className="w-2 h-2 rounded-full bg-slate-200" />
                 </div>
@@ -256,7 +265,6 @@ export default function PersonDetailPage({ params }: { params: Promise<{ id: str
   )
 }
 
-/** Get the most frequent element in an array */
 function mode(arr: string[]): string {
   const counts: Record<string, number> = {}
   for (const v of arr) counts[v] = (counts[v] || 0) + 1

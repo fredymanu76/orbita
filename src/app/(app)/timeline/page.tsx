@@ -1,8 +1,9 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Card, CardContent } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
+import { TimelineActivityChart } from '@/components/charts/timeline-activity-chart'
+import { TypeChip } from '@/components/ui/type-chip'
+import { THREAD_TYPE_COLORS } from '@/lib/colors'
 import {
   CalendarClock,
   MessageSquare,
@@ -13,20 +14,25 @@ import {
   Handshake,
   Brain,
   GitBranch,
+  Star,
+  Layers,
+  ChevronRight,
 } from 'lucide-react'
 import { format, isToday, isYesterday, parseISO } from 'date-fns'
 import Link from 'next/link'
-import type { MemoryItem } from '@/lib/types'
+import type { MemoryItem, ThreadType } from '@/lib/types'
 
-const EVENT_ICONS: Record<string, { icon: typeof Brain; color: string }> = {
-  thought: { icon: Brain, color: 'text-slate-400' },
-  voice_note: { icon: Mic, color: 'text-violet-400' },
-  promise: { icon: Handshake, color: 'text-emerald-400' },
-  image: { icon: Image, color: 'text-amber-400' },
-  conversation: { icon: MessageSquare, color: 'text-blue-400' },
-  interruption: { icon: AlertTriangle, color: 'text-orange-400' },
-  emotional_shift: { icon: Heart, color: 'text-pink-400' },
-  text: { icon: Brain, color: 'text-slate-400' },
+const EVENT_ICONS: Record<string, { icon: typeof Brain; color: string; bg: string }> = {
+  thought: { icon: Brain, color: 'text-slate-500', bg: 'bg-slate-100' },
+  voice_note: { icon: Mic, color: 'text-violet-500', bg: 'bg-violet-50' },
+  promise: { icon: Handshake, color: 'text-emerald-500', bg: 'bg-emerald-50' },
+  image: { icon: Image, color: 'text-amber-500', bg: 'bg-amber-50' },
+  conversation: { icon: MessageSquare, color: 'text-blue-500', bg: 'bg-blue-50' },
+  interruption: { icon: AlertTriangle, color: 'text-orange-500', bg: 'bg-orange-50' },
+  emotional_shift: { icon: Heart, color: 'text-pink-500', bg: 'bg-pink-50' },
+  text: { icon: Brain, color: 'text-slate-500', bg: 'bg-slate-100' },
+  voice: { icon: Mic, color: 'text-violet-500', bg: 'bg-violet-50' },
+  task: { icon: Handshake, color: 'text-emerald-500', bg: 'bg-emerald-50' },
 }
 
 interface TimelineEvent extends MemoryItem {
@@ -86,6 +92,16 @@ export default function TimelinePage() {
     fetchTimeline()
   }, [])
 
+  // Build activity chart data
+  const activityMap = new Map<string, number>()
+  for (const event of events) {
+    const dateKey = format(parseISO(event.created_at), 'MMM d')
+    activityMap.set(dateKey, (activityMap.get(dateKey) || 0) + 1)
+  }
+  const activityData = Array.from(activityMap.entries())
+    .map(([date, count]) => ({ date, count }))
+    .reverse()
+
   // Group chronological events by date
   const dateGroups: { label: string; date: string; items: TimelineEvent[] }[] = []
   const dateMap = new Map<string, TimelineEvent[]>()
@@ -104,13 +120,16 @@ export default function TimelinePage() {
     dateGroups.push({ label, date: dateKey, items })
   }
 
+  const highImportanceCount = events.filter(e => (e.importance ?? 0) >= 7).length
+
   if (loading) {
     return (
-      <div className="max-w-3xl mx-auto space-y-6">
+      <div className="max-w-4xl mx-auto space-y-6">
         <div className="h-7 bg-slate-100/60 rounded w-32 animate-pulse" />
+        <div className="h-[160px] bg-slate-50/60 rounded-xl animate-pulse" />
         <div className="space-y-3">
           {[1, 2, 3, 4].map(i => (
-            <div key={i} className="h-16 bg-slate-50/60 rounded-lg animate-pulse" />
+            <div key={i} className="h-24 bg-slate-50/60 rounded-xl animate-pulse" />
           ))}
         </div>
       </div>
@@ -118,26 +137,26 @@ export default function TimelinePage() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
+    <div className="max-w-4xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-800">Timeline</h1>
-          <p className="text-sm text-slate-400 mt-0.5">Your continuity stream</p>
+          <h1 className="text-2xl font-semibold text-slate-800">Activity</h1>
+          <p className="text-sm text-slate-400 mt-0.5">Everything you&apos;ve captured, day by day</p>
         </div>
         {/* View toggle */}
-        <div className="flex bg-slate-100 rounded-lg p-0.5">
+        <div className="flex bg-white/80 rounded-lg p-0.5 border border-slate-100">
           <button
             onClick={() => setView('threads')}
             className={`px-3 py-1.5 text-xs rounded-md transition-colors ${
-              view === 'threads' ? 'bg-white text-slate-700 shadow-sm' : 'text-slate-400'
+              view === 'threads' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-400'
             }`}
           >
-            By thread
+            By topic
           </button>
           <button
             onClick={() => setView('chronological')}
             className={`px-3 py-1.5 text-xs rounded-md transition-colors ${
-              view === 'chronological' ? 'bg-white text-slate-700 shadow-sm' : 'text-slate-400'
+              view === 'chronological' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-400'
             }`}
           >
             Chronological
@@ -145,11 +164,38 @@ export default function TimelinePage() {
         </div>
       </div>
 
-      {/* Stats — minimal */}
-      <div className="flex items-center gap-6 text-xs text-slate-400">
-        <span>{events.length} captures</span>
-        <span>{dateGroups.length} days</span>
-        <span>{events.filter(e => (e.importance ?? 0) >= 7).length} high importance</span>
+      {/* Activity chart */}
+      <TimelineActivityChart data={activityData} />
+
+      {/* Stats row */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="rounded-xl bg-white/80 border border-slate-100 p-3 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-lg bg-indigo-50 flex items-center justify-center">
+            <Layers className="h-4 w-4 text-indigo-500" />
+          </div>
+          <div>
+            <p className="text-lg font-bold text-slate-700">{events.length}</p>
+            <p className="text-[11px] text-slate-400">Captures</p>
+          </div>
+        </div>
+        <div className="rounded-xl bg-white/80 border border-slate-100 p-3 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center">
+            <CalendarClock className="h-4 w-4 text-blue-500" />
+          </div>
+          <div>
+            <p className="text-lg font-bold text-slate-700">{dateGroups.length}</p>
+            <p className="text-[11px] text-slate-400">Days</p>
+          </div>
+        </div>
+        <div className="rounded-xl bg-white/80 border border-slate-100 p-3 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-lg bg-amber-50 flex items-center justify-center">
+            <Star className="h-4 w-4 text-amber-500" />
+          </div>
+          <div>
+            <p className="text-lg font-bold text-slate-700">{highImportanceCount}</p>
+            <p className="text-[11px] text-slate-400">High importance</p>
+          </div>
+        </div>
       </div>
 
       {/* Thread View */}
@@ -158,32 +204,41 @@ export default function TimelinePage() {
           {threadGroups.length === 0 ? (
             <EmptyTimeline />
           ) : (
-            <div className="space-y-6">
-              {threadGroups.map(group => (
-                <div key={group.thread_id}>
-                  <Link href={`/continuity/threads/${group.thread_id}`}>
-                    <div className="flex items-center gap-2 mb-2 cursor-pointer group">
-                      <GitBranch className="h-3.5 w-3.5 text-slate-300" />
-                      <span className="text-sm font-medium text-slate-600 group-hover:text-slate-800 transition-colors">
-                        {group.thread_title}
-                      </span>
-                      <Badge variant="outline" className="text-[10px] py-0 border-0 bg-slate-50 text-slate-400">
-                        {group.thread_type}
-                      </Badge>
+            <div className="space-y-4">
+              {threadGroups.map(group => {
+                const typeColor = THREAD_TYPE_COLORS[group.thread_type as ThreadType] || THREAD_TYPE_COLORS.general
+                return (
+                  <div key={group.thread_id} className={`rounded-xl bg-white/80 border border-slate-100 overflow-hidden`}>
+                    {/* Thread header with color accent */}
+                    <Link href={`/continuity/threads/${group.thread_id}`}>
+                      <div className={`border-l-[3px] ${typeColor.border} px-4 py-3 flex items-center justify-between cursor-pointer hover:bg-white/90 transition-colors`}>
+                        <div className="flex items-center gap-2.5">
+                          <GitBranch className="h-3.5 w-3.5 text-slate-400" />
+                          <span className="text-sm font-medium text-slate-700">
+                            {group.thread_title}
+                          </span>
+                          <TypeChip type={group.thread_type} />
+                          <span className="text-[11px] text-slate-400">{group.captures.length} captures</span>
+                        </div>
+                        <ChevronRight className="h-3.5 w-3.5 text-slate-300" />
+                      </div>
+                    </Link>
+                    {/* Captures */}
+                    <div className="px-4 pb-3 pt-1 space-y-0.5">
+                      {group.captures.slice(0, 4).map(event => (
+                        <CaptureRow key={event.id} event={event} />
+                      ))}
+                      {group.captures.length > 4 && (
+                        <Link href={`/continuity/threads/${group.thread_id}`}>
+                          <p className="text-[11px] text-indigo-500 hover:text-indigo-600 pl-10 py-1 cursor-pointer">
+                            +{group.captures.length - 4} more captures
+                          </p>
+                        </Link>
+                      )}
                     </div>
-                  </Link>
-                  <div className="pl-5 border-l border-slate-100 space-y-1.5">
-                    {group.captures.slice(0, 5).map(event => (
-                      <CaptureRow key={event.id} event={event} />
-                    ))}
-                    {group.captures.length > 5 && (
-                      <p className="text-[11px] text-slate-300 pl-2">
-                        +{group.captures.length - 5} more
-                      </p>
-                    )}
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
         </>
@@ -195,13 +250,15 @@ export default function TimelinePage() {
           {dateGroups.length === 0 ? (
             <EmptyTimeline />
           ) : (
-            <div className="space-y-6">
+            <div className="space-y-4">
               {dateGroups.map(group => (
-                <div key={group.date}>
-                  <p className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2 sticky top-0 bg-white/80 backdrop-blur-sm py-1 z-10">
-                    {group.label}
-                  </p>
-                  <div className="pl-5 border-l border-slate-100 space-y-1.5">
+                <div key={group.date} className="rounded-xl bg-white/80 border border-slate-100 overflow-hidden">
+                  <div className="px-4 py-2.5 border-b border-slate-50">
+                    <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">
+                      {group.label}
+                    </p>
+                  </div>
+                  <div className="px-4 py-2 space-y-0.5">
                     {group.items.map(event => (
                       <CaptureRow key={event.id} event={event} showThread />
                     ))}
@@ -222,28 +279,27 @@ function CaptureRow({ event, showThread }: { event: TimelineEvent; showThread?: 
   const Icon = meta.icon
 
   return (
-    <div className="flex items-start gap-2.5 py-2 px-2 rounded-md hover:bg-slate-50/50 transition-colors">
-      <div className="relative -ml-[23px] mt-1.5">
-        <div className="w-2 h-2 rounded-full bg-slate-200" />
+    <div className="flex items-start gap-3 py-2.5 px-1 rounded-lg hover:bg-slate-50/50 transition-colors">
+      <div className={`w-7 h-7 rounded-lg ${meta.bg} flex items-center justify-center flex-shrink-0 mt-0.5`}>
+        <Icon className={`h-3.5 w-3.5 ${meta.color}`} />
       </div>
-      <Icon className={`h-3.5 w-3.5 mt-0.5 flex-shrink-0 ${meta.color}`} />
       <div className="flex-1 min-w-0">
         <p className="text-sm text-slate-600 line-clamp-2">
           {event.summary || event.raw_content.substring(0, 120)}
         </p>
-        <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-300">
+        <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-400">
           <span>{format(parseISO(event.created_at), 'h:mm a')}</span>
           {event.emotional_tone && event.emotional_tone !== 'neutral' && (
-            <span>{event.emotional_tone}</span>
+            <span className="px-1.5 py-0.5 rounded bg-slate-50 text-slate-500">{event.emotional_tone}</span>
           )}
           {event.importance !== null && event.importance >= 7 && (
-            <span className="text-amber-400">important</span>
+            <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-600">important</span>
           )}
           {event.continuity_retention !== undefined && event.continuity_retention < 0.5 && (
-            <span className="text-rose-300">fading</span>
+            <span className="px-1.5 py-0.5 rounded bg-rose-50 text-rose-500">slipping</span>
           )}
           {showThread && event.primary_thread_id && (
-            <span className="text-slate-300">threaded</span>
+            <span className="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-500">linked</span>
           )}
         </div>
       </div>
@@ -253,10 +309,10 @@ function CaptureRow({ event, showThread }: { event: TimelineEvent; showThread?: 
 
 function EmptyTimeline() {
   return (
-    <div className="text-center py-12">
+    <div className="text-center py-12 rounded-xl bg-white/80 border border-slate-100">
       <CalendarClock className="h-6 w-6 text-slate-200 mx-auto mb-3" />
       <p className="text-sm text-slate-400">
-        Your timeline will populate as you capture thoughts.
+        Your activity feed will fill up as you capture thoughts.
       </p>
     </div>
   )

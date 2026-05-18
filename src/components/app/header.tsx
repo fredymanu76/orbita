@@ -29,21 +29,21 @@ import {
 import { cn } from '@/lib/utils'
 
 const navItems = [
-  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/dashboard', label: 'Today', icon: LayoutDashboard },
   { href: '/capture', label: 'Capture', icon: Mic },
   { href: '/memories', label: 'Memories', icon: Brain },
-  { href: '/recall', label: 'Recall', icon: MessageCircle },
-  { href: '/commitments', label: 'Commitments', icon: Handshake },
+  { href: '/recall', label: 'Ask', icon: MessageCircle },
+  { href: '/commitments', label: 'Promises', icon: Handshake },
   { href: '/people', label: 'People', icon: Users },
   { href: '/settings', label: 'Settings', icon: Settings },
 ]
 
 const pageTitles: Record<string, string> = {
-  '/dashboard': 'Dashboard',
+  '/dashboard': 'Today',
   '/capture': 'Capture',
   '/memories': 'Memories',
-  '/recall': 'Recall',
-  '/commitments': 'Commitments',
+  '/recall': 'Ask',
+  '/commitments': 'Promises',
   '/people': 'People',
   '/settings': 'Settings',
 }
@@ -62,7 +62,7 @@ export function Header() {
   }
 
   return (
-    <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-sm border-b border-slate-200">
+    <header className="sticky top-0 z-40 backdrop-blur-sm border-b border-slate-100/80" style={{ backgroundColor: 'oklch(0.985 0.005 80 / 0.8)' }}>
       <div className="flex items-center justify-between px-4 md:px-6 h-14">
         <div className="flex items-center gap-3">
           <Sheet>
@@ -87,7 +87,7 @@ export function Header() {
                       key={item.href}
                       href={item.href}
                       className={cn(
-                        'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
+                        'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors',
                         isActive
                           ? 'bg-slate-100 text-slate-900'
                           : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
@@ -107,7 +107,7 @@ export function Header() {
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
-              <button className="rounded-full p-1 hover:bg-slate-100 transition-colors">
+              <button className="rounded-full p-1 hover:bg-white/60 transition-colors">
                 <Avatar className="h-8 w-8">
                   <AvatarFallback className="bg-slate-200 text-slate-600 text-xs">
                     <User className="h-4 w-4" />

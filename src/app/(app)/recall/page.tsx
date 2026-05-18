@@ -5,17 +5,16 @@ import { useRecall } from '@/hooks/use-recall'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Send, MessageCircle, Brain, RotateCcw } from 'lucide-react'
+import { Send, MessageCircle, Brain, RotateCcw, Sparkles } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import Link from 'next/link'
 
 const suggestedQueries = [
-  'What did I promise anyone this week?',
-  'What conversations did I have recently?',
-  'Are there any overdue commitments?',
-  'What was I working on yesterday?',
+  { text: 'What did I promise anyone this week?', icon: '🤝' },
+  { text: 'What conversations did I have recently?', icon: '💬' },
+  { text: 'Do I have any overdue promises?', icon: '⏰' },
+  { text: 'What was I working on yesterday?', icon: '📝' },
 ]
 
 export default function RecallPage() {
@@ -41,39 +40,42 @@ export default function RecallPage() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto flex flex-col h-[calc(100vh-10rem)]">
+    <div className="max-w-4xl mx-auto flex flex-col h-[calc(100vh-10rem)]">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-800">Recall</h1>
+          <h1 className="text-2xl font-semibold text-slate-800">Ask</h1>
           <p className="text-sm text-slate-500 mt-1">
-            Ask questions about your memories
+            Search your memory
           </p>
         </div>
         {messages.length > 0 && (
-          <Button variant="outline" size="sm" onClick={clear}>
+          <Button variant="outline" size="sm" onClick={clear} className="bg-white/80">
             <RotateCcw className="h-4 w-4 mr-1.5" />
             Clear
           </Button>
         )}
       </div>
 
-      <Card className="flex-1 flex flex-col overflow-hidden">
+      <Card className="flex-1 flex flex-col overflow-hidden bg-white/80 border-slate-100">
         <ScrollArea className="flex-1 p-4" ref={scrollRef}>
           {messages.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-center py-16">
-              <Brain className="h-12 w-12 text-slate-200 mb-4" />
-              <h3 className="text-lg font-medium text-slate-600">What would you like to recall?</h3>
+              <div className="w-16 h-16 rounded-2xl bg-indigo-50 flex items-center justify-center mb-4">
+                <Brain className="h-8 w-8 text-indigo-400" />
+              </div>
+              <h3 className="text-lg font-medium text-slate-600">What would you like to remember?</h3>
               <p className="text-sm text-slate-400 mt-1 max-w-sm mb-6">
-                Ask about your conversations, commitments, or anything you&apos;ve captured.
+                Ask about your conversations, promises, or anything you&apos;ve captured.
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full max-w-md">
                 {suggestedQueries.map((query) => (
                   <button
-                    key={query}
-                    onClick={() => handleSuggestion(query)}
-                    className="text-left text-sm p-3 rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors text-slate-600"
+                    key={query.text}
+                    onClick={() => handleSuggestion(query.text)}
+                    className="text-left text-sm p-3 rounded-xl bg-white/90 border border-slate-100 hover:bg-white hover:border-slate-200 transition-all text-slate-600 flex items-start gap-2"
                   >
-                    {query}
+                    <span className="text-base">{query.icon}</span>
+                    <span>{query.text}</span>
                   </button>
                 ))}
               </div>
@@ -90,8 +92,8 @@ export default function RecallPage() {
                     {message.role === 'assistant' && (
                       <div className="flex items-start gap-2">
                         <div className="flex-shrink-0 mt-1">
-                          <div className="h-7 w-7 rounded-full bg-blue-100 flex items-center justify-center">
-                            <MessageCircle className="h-3.5 w-3.5 text-blue-600" />
+                          <div className="h-7 w-7 rounded-full bg-indigo-50 flex items-center justify-center">
+                            <Sparkles className="h-3.5 w-3.5 text-indigo-500" />
                           </div>
                         </div>
                         <div>
@@ -102,12 +104,12 @@ export default function RecallPage() {
                           {message.sources && message.sources.length > 0 && (
                             <div className="mt-3 space-y-1">
                               <p className="text-xs text-slate-400 font-medium">Sources:</p>
-                              <div className="flex gap-1 flex-wrap">
+                              <div className="flex gap-1.5 flex-wrap">
                                 {message.sources.map((source) => (
                                   <Link key={source.id} href={`/memories/${source.id}`}>
-                                    <Badge variant="outline" className="text-xs cursor-pointer hover:bg-slate-50">
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-colors cursor-pointer">
                                       {formatDistanceToNow(new Date(source.created_at), { addSuffix: true })}
-                                    </Badge>
+                                    </span>
                                   </Link>
                                 ))}
                               </div>
@@ -127,8 +129,8 @@ export default function RecallPage() {
               {loading && (
                 <div className="flex justify-start">
                   <div className="flex items-center gap-2">
-                    <div className="h-7 w-7 rounded-full bg-blue-100 flex items-center justify-center">
-                      <MessageCircle className="h-3.5 w-3.5 text-blue-600" />
+                    <div className="h-7 w-7 rounded-full bg-indigo-50 flex items-center justify-center">
+                      <Sparkles className="h-3.5 w-3.5 text-indigo-500" />
                     </div>
                     <div className="flex gap-1">
                       <div className="h-2 w-2 bg-slate-300 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
@@ -142,14 +144,14 @@ export default function RecallPage() {
           )}
         </ScrollArea>
 
-        <CardContent className="border-t p-3">
+        <CardContent className="border-t border-slate-100 p-3">
           <form onSubmit={handleSubmit} className="flex items-center gap-2">
             <Input
-              placeholder="Ask about your memories..."
+              placeholder="Ask anything about your life..."
               value={input}
               onChange={(e) => setInput(e.target.value)}
               disabled={loading}
-              className="flex-1"
+              className="flex-1 bg-white/80"
             />
             <Button type="submit" size="icon" disabled={!input.trim() || loading}>
               <Send className="h-4 w-4" />

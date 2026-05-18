@@ -1,10 +1,16 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Clock, Check, X, AlertCircle, ArrowRight } from 'lucide-react'
+import { ConfidenceBadge } from '@/components/ui/confidence-badge'
+import {
+  Clock,
+  Check,
+  X,
+  AlertCircle,
+  CalendarCheck,
+  Activity,
+} from 'lucide-react'
 import { format } from 'date-fns'
 import type { FollowUpCandidate } from '@/lib/types'
 
@@ -44,42 +50,18 @@ export default function FollowUpsPage() {
     }
   }
 
-  function getUrgencyBadge(followUp: FollowUpWithUrgency) {
-    const now = new Date()
-    if (followUp.follow_up_due_at && new Date(followUp.follow_up_due_at) < now) {
-      return <Badge variant="outline" className="text-[10px] bg-red-50 text-red-600 border-red-200">overdue</Badge>
-    }
-    const urgency = followUp.decay_adjusted_urgency ?? 0
-    if (urgency > 0.6) {
-      return <Badge variant="outline" className="text-[10px] bg-amber-50 text-amber-600 border-amber-200">high urgency</Badge>
-    }
-    if (urgency > 0.3) {
-      return <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-600 border-blue-200">moderate</Badge>
-    }
-    return <Badge variant="outline" className="text-[10px] bg-slate-50 text-slate-500 border-slate-200">low</Badge>
-  }
-
-  function getConfidenceDots(confidence: number) {
-    const filled = Math.round(confidence * 5)
-    return (
-      <div className="flex gap-0.5">
-        {[1, 2, 3, 4, 5].map(i => (
-          <div
-            key={i}
-            className={`w-1.5 h-1.5 rounded-full ${i <= filled ? 'bg-blue-400' : 'bg-slate-200'}`}
-          />
-        ))}
-      </div>
-    )
-  }
-
   if (loading) {
     return (
-      <div className="max-w-3xl mx-auto space-y-6">
-        <h1 className="text-2xl font-semibold text-slate-800">Follow-ups</h1>
+      <div className="max-w-4xl mx-auto space-y-6">
+        <div className="h-7 bg-slate-100/60 rounded w-32 animate-pulse" />
+        <div className="grid grid-cols-3 gap-3">
+          {[1, 2, 3].map(i => (
+            <div key={i} className="h-20 bg-slate-50/60 rounded-xl animate-pulse" />
+          ))}
+        </div>
         <div className="space-y-3">
           {[1, 2, 3].map(i => (
-            <div key={i} className="h-20 bg-slate-100 rounded-lg animate-pulse" />
+            <div key={i} className="h-20 bg-slate-50/60 rounded-xl animate-pulse" />
           ))}
         </div>
       </div>
@@ -90,71 +72,74 @@ export default function FollowUpsPage() {
   const upcoming = followUps.filter(f => !f.follow_up_due_at || new Date(f.follow_up_due_at) >= new Date())
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
+    <div className="max-w-4xl mx-auto space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-slate-800">Follow-ups</h1>
-        <p className="text-sm text-slate-500 mt-0.5">Detected intentions that may need your attention</p>
+        <h1 className="text-2xl font-semibold text-slate-800">Waiting On</h1>
+        <p className="text-sm text-slate-500 mt-0.5">Things you might have forgotten to follow up on</p>
       </div>
 
-      {/* Summary */}
-      <div className="grid grid-cols-2 gap-3">
-        <Card>
-          <CardContent className="pt-4 pb-4 text-center">
-            <p className="text-2xl font-bold text-red-600">{overdue.length}</p>
-            <p className="text-xs text-slate-500">Overdue</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4 pb-4 text-center">
-            <p className="text-2xl font-bold text-blue-600">{upcoming.length}</p>
-            <p className="text-xs text-slate-500">Upcoming</p>
-          </CardContent>
-        </Card>
+      {/* Stat cards */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="rounded-xl bg-slate-50 p-4 flex items-center gap-3">
+          <Activity className="h-5 w-5 text-slate-500" />
+          <div>
+            <p className="text-2xl font-bold text-slate-700">{followUps.length}</p>
+            <p className="text-xs text-slate-400">Total</p>
+          </div>
+        </div>
+        <div className="rounded-xl bg-red-50 p-4 flex items-center gap-3">
+          <AlertCircle className="h-5 w-5 text-red-500" />
+          <div>
+            <p className="text-2xl font-bold text-red-700">{overdue.length}</p>
+            <p className="text-xs text-red-500">Overdue</p>
+          </div>
+        </div>
+        <div className="rounded-xl bg-blue-50 p-4 flex items-center gap-3">
+          <CalendarCheck className="h-5 w-5 text-blue-500" />
+          <div>
+            <p className="text-2xl font-bold text-blue-700">{upcoming.length}</p>
+            <p className="text-xs text-blue-500">Upcoming</p>
+          </div>
+        </div>
       </div>
 
-      {/* Overdue */}
+      {/* Overdue section */}
       {overdue.length > 0 && (
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base flex items-center gap-2">
-              <AlertCircle className="h-4 w-4 text-red-500" />
-              Overdue
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
+        <div className="rounded-xl bg-red-50/40 p-4">
+          <h3 className="text-sm font-medium text-red-600 mb-3 flex items-center gap-1.5">
+            <AlertCircle className="h-4 w-4" />
+            Overdue
+          </h3>
+          <div className="space-y-2">
             {overdue.map(f => (
-              <FollowUpItem key={f.id} followUp={f} onAction={handleAction} getUrgencyBadge={getUrgencyBadge} getConfidenceDots={getConfidenceDots} />
+              <FollowUpItem key={f.id} followUp={f} onAction={handleAction} />
             ))}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       )}
 
-      {/* Upcoming */}
+      {/* Upcoming section */}
       {upcoming.length > 0 && (
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base flex items-center gap-2">
-              <Clock className="h-4 w-4 text-blue-500" />
-              Upcoming
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
+        <div className="rounded-xl bg-blue-50/30 p-4">
+          <h3 className="text-sm font-medium text-blue-600 mb-3 flex items-center gap-1.5">
+            <Clock className="h-4 w-4" />
+            Upcoming
+          </h3>
+          <div className="space-y-2">
             {upcoming.map(f => (
-              <FollowUpItem key={f.id} followUp={f} onAction={handleAction} getUrgencyBadge={getUrgencyBadge} getConfidenceDots={getConfidenceDots} />
+              <FollowUpItem key={f.id} followUp={f} onAction={handleAction} />
             ))}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       )}
 
       {followUps.length === 0 && (
-        <Card>
-          <CardContent className="py-8 text-center">
-            <Clock className="h-8 w-8 text-slate-300 mx-auto mb-3" />
-            <p className="text-sm text-slate-400">
-              No pending follow-ups. As you capture thoughts with future intentions, they will appear here.
-            </p>
-          </CardContent>
-        </Card>
+        <div className="text-center py-12 rounded-xl bg-white/80">
+          <Clock className="h-8 w-8 text-slate-300 mx-auto mb-3" />
+          <p className="text-sm text-slate-400">
+            Nothing waiting on you right now. When you mention something you need to follow up on, it&apos;ll show up here.
+          </p>
+        </div>
       )}
     </div>
   )
@@ -163,20 +148,45 @@ export default function FollowUpsPage() {
 function FollowUpItem({
   followUp,
   onAction,
-  getUrgencyBadge,
-  getConfidenceDots,
 }: {
   followUp: FollowUpWithUrgency
   onAction: (id: string, status: 'completed' | 'dismissed') => void
-  getUrgencyBadge: (f: FollowUpWithUrgency) => React.ReactNode
-  getConfidenceDots: (c: number) => React.ReactNode
 }) {
+  const isOverdue = followUp.follow_up_due_at && new Date(followUp.follow_up_due_at) < new Date()
+  const urgency = followUp.decay_adjusted_urgency ?? 0
+
+  const urgencyBorder = isOverdue
+    ? 'border-l-red-400'
+    : urgency > 0.6
+      ? 'border-l-amber-400'
+      : urgency > 0.3
+        ? 'border-l-blue-300'
+        : 'border-l-slate-200'
+
+  const urgencyLabel = isOverdue
+    ? 'overdue'
+    : urgency > 0.6
+      ? 'high urgency'
+      : urgency > 0.3
+        ? 'moderate'
+        : 'low'
+
+  const urgencyStyle = isOverdue
+    ? 'bg-red-50 text-red-600'
+    : urgency > 0.6
+      ? 'bg-amber-50 text-amber-600'
+      : urgency > 0.3
+        ? 'bg-blue-50 text-blue-600'
+        : 'bg-slate-50 text-slate-500'
+
   return (
-    <div className="flex items-start gap-3 p-3 rounded-lg bg-slate-50/50">
+    <div className={`flex items-start gap-3 p-3 rounded-xl bg-white/90 border-l-[3px] ${urgencyBorder}`}>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-1">
           <p className="text-sm font-medium text-slate-700 truncate">{followUp.description}</p>
-          {getUrgencyBadge(followUp)}
+          <span className={`inline-flex px-1.5 py-0.5 rounded-md text-[10px] font-medium ${urgencyStyle}`}>
+            {urgencyLabel}
+          </span>
         </div>
         <p className="text-xs text-slate-500 mb-1.5">{followUp.detected_intent}</p>
         <div className="flex items-center gap-4 text-[11px] text-slate-400">
@@ -184,16 +194,16 @@ function FollowUpItem({
             <span>Due: {format(new Date(followUp.follow_up_due_at), 'MMM d, yyyy')}</span>
           )}
           <span className="flex items-center gap-1">
-            Confidence: {getConfidenceDots(followUp.continuity_retention)}
+            Certainty: <ConfidenceBadge value={followUp.continuity_retention} />
           </span>
-          <span>Retention: {Math.round(followUp.continuity_retention * 100)}%</span>
+          <span>Freshness: {Math.round(followUp.continuity_retention * 100)}%</span>
         </div>
       </div>
       <div className="flex gap-1 flex-shrink-0">
         <Button
           variant="ghost"
           size="sm"
-          className="h-7 text-xs text-emerald-600"
+          className="h-7 text-xs text-emerald-600 hover:bg-emerald-50"
           onClick={() => onAction(followUp.id, 'completed')}
         >
           <Check className="h-3 w-3" />

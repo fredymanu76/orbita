@@ -1,17 +1,16 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Card, CardContent } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { RelationshipCard } from '@/components/cards/relationship-card'
 import { Users } from 'lucide-react'
-import { formatDistanceToNow } from 'date-fns'
-import Link from 'next/link'
 import type { Person } from '@/lib/types'
+
+type SortMode = 'mentions' | 'recency' | 'name'
 
 export default function PeoplePage() {
   const [people, setPeople] = useState<Person[]>([])
   const [loading, setLoading] = useState(true)
+  const [sort, setSort] = useState<SortMode>('mentions')
 
   useEffect(() => {
     async function fetchPeople() {
@@ -29,67 +28,69 @@ export default function PeoplePage() {
     fetchPeople()
   }, [])
 
+  const sorted = [...people].sort((a, b) => {
+    if (sort === 'mentions') return b.mention_count - a.mention_count
+    if (sort === 'recency') {
+      const aTime = a.last_mentioned_at ? new Date(a.last_mentioned_at).getTime() : 0
+      const bTime = b.last_mentioned_at ? new Date(b.last_mentioned_at).getTime() : 0
+      return bTime - aTime
+    }
+    return a.name.localeCompare(b.name)
+  })
+
   if (loading) {
     return (
-      <div className="max-w-3xl mx-auto space-y-3">
-        {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className="h-20 bg-slate-100 rounded-lg animate-pulse" />
-        ))}
+      <div className="max-w-4xl mx-auto space-y-3">
+        <div className="h-7 bg-slate-100/60 rounded w-32 animate-pulse" />
+        <div className="grid gap-3 sm:grid-cols-2">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="h-20 bg-slate-50/60 rounded-xl animate-pulse" />
+          ))}
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="max-w-3xl mx-auto">
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold text-slate-800">People</h1>
-        <p className="text-sm text-slate-500 mt-1">
-          People mentioned in your memories
-        </p>
+    <div className="max-w-4xl mx-auto">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-semibold text-slate-800">People</h1>
+          <p className="text-sm text-slate-500 mt-1">
+            People in your life
+          </p>
+        </div>
+
+        {/* Sort toggle */}
+        {people.length > 0 && (
+          <div className="flex bg-white/80 rounded-lg p-0.5 border border-slate-100">
+            {(['mentions', 'recency', 'name'] as SortMode[]).map(mode => (
+              <button
+                key={mode}
+                onClick={() => setSort(mode)}
+                className={`px-3 py-1.5 text-xs rounded-md transition-colors capitalize ${
+                  sort === mode ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-400'
+                }`}
+              >
+                {mode}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {people.length === 0 ? (
         <div className="text-center py-16">
           <Users className="h-12 w-12 text-slate-200 mx-auto mb-4" />
-          <p className="text-slate-400">No people detected yet.</p>
+          <p className="text-slate-400">No people spotted yet.</p>
           <p className="text-sm text-slate-300 mt-1">
-            As you capture conversations and notes, we&apos;ll automatically identify the people in your life.
+            As you capture conversations and notes, the people you mention will show up here.
           </p>
         </div>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
-          {people.map((person) => (
-            <Link key={person.id} href={`/people/${person.id}`}>
-              <Card className="hover:shadow-md transition-shadow cursor-pointer h-full">
-                <CardContent className="py-4">
-                  <div className="flex items-center gap-3">
-                    <Avatar className="h-10 w-10">
-                      <AvatarFallback className="bg-blue-100 text-blue-600 text-sm font-medium">
-                        {person.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="min-w-0 flex-1">
-                      <p className="font-medium text-slate-800">{person.name}</p>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        {person.relationship && (
-                          <Badge variant="outline" className="text-xs">
-                            {person.relationship}
-                          </Badge>
-                        )}
-                        <span className="text-xs text-slate-400">
-                          {person.mention_count} mention{person.mention_count !== 1 ? 's' : ''}
-                        </span>
-                      </div>
-                      {person.last_mentioned_at && (
-                        <p className="text-xs text-slate-400 mt-0.5">
-                          Last mentioned {formatDistanceToNow(new Date(person.last_mentioned_at), { addSuffix: true })}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </Link>
+          {sorted.map((person) => (
+            <RelationshipCard key={person.id} person={person} />
           ))}
         </div>
       )}

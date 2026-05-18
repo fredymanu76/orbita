@@ -9,7 +9,7 @@ export function MemoryList({ memories, loading }: { memories: MemoryItem[]; load
     return (
       <div className="space-y-3">
         {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className="h-24 bg-slate-100 rounded-lg animate-pulse" />
+          <div key={i} className="h-24 bg-slate-50/60 rounded-xl animate-pulse" />
         ))}
       </div>
     )
@@ -18,7 +18,9 @@ export function MemoryList({ memories, loading }: { memories: MemoryItem[]; load
   if (memories.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-center">
-        <Brain className="h-12 w-12 text-slate-200 mb-4" />
+        <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mb-4">
+          <Brain className="h-8 w-8 text-slate-200" />
+        </div>
         <h3 className="text-lg font-medium text-slate-600">No memories yet</h3>
         <p className="text-sm text-slate-400 mt-1 max-w-sm">
           Start capturing your thoughts, conversations, and commitments. They&apos;ll appear here.
@@ -28,7 +30,7 @@ export function MemoryList({ memories, loading }: { memories: MemoryItem[]; load
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2.5">
       {memories.map((memory) => (
         <MemoryCard key={memory.id} memory={memory} />
       ))}

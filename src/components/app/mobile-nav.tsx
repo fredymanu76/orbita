@@ -12,11 +12,11 @@ import {
 import { cn } from '@/lib/utils'
 
 const mobileNavItems = [
-  { href: '/dashboard', label: 'Home', icon: LayoutDashboard },
+  { href: '/dashboard', label: 'Today', icon: LayoutDashboard },
   { href: '/capture', label: 'Capture', icon: Mic },
   { href: '/memories', label: 'Memories', icon: Brain },
-  { href: '/recall', label: 'Recall', icon: MessageCircle },
-  { href: '/commitments', label: 'Tasks', icon: Handshake },
+  { href: '/recall', label: 'Ask', icon: MessageCircle },
+  { href: '/commitments', label: 'Promises', icon: Handshake },
 ]
 
 export function MobileNav() {
