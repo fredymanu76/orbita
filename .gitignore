@@ -39,3 +39,15 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# android signing
+android/keystore.properties
+*.keystore
+*.jks
+
+# capacitor generated
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+
+# firebase
+android/app/google-services.json

@@ -9,7 +9,35 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const { subscription } = await request.json()
+  const body = await request.json()
+
+  // Native Android FCM token registration
+  if (body.platform === 'android' && body.fcmToken) {
+    const endpoint = `fcm://${body.fcmToken}`
+    const { error } = await supabase
+      .from('push_subscriptions')
+      .upsert(
+        {
+          user_id: user.id,
+          endpoint,
+          subscription: {
+            platform: 'android',
+            fcmToken: body.fcmToken,
+          },
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'user_id,endpoint' }
+      )
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+
+    return NextResponse.json({ success: true })
+  }
+
+  // Web Push subscription (existing flow)
+  const { subscription } = body
 
   if (!subscription || !subscription.endpoint) {
     return NextResponse.json({ error: 'Invalid subscription' }, { status: 400 })
