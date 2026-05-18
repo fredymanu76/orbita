@@ -16,6 +16,7 @@ import { format, formatDistanceToNow } from 'date-fns'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import type { Commitment, ContinuityState, CognitiveLoadReading, Person, Thread } from '@/lib/types'
+import { createClient } from '@/lib/supabase/client'
 
 export default function DashboardPage() {
   const [threads, setThreads] = useState<Thread[]>([])
@@ -24,10 +25,25 @@ export default function DashboardPage() {
   const [continuityScore, setContinuityScore] = useState(0)
   const [cognitiveLoadReading, setCognitiveLoadReading] = useState<CognitiveLoadReading | null>(null)
   const [peopleNeedingFollowUp, setPeopleNeedingFollowUp] = useState<(Person & { days_since: number })[]>([])
+  const [userName, setUserName] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
   const fetchData = useCallback(async () => {
     try {
+      // Fetch user's name from profile
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('full_name')
+          .eq('id', user.id)
+          .single()
+        if (profile?.full_name) {
+          setUserName(profile.full_name.split(' ')[0])
+        }
+      }
+
       const [threadsRes, commitmentsRes, continuityRes, loadRes, peopleRes] = await Promise.all([
         fetch('/api/threads?include_people=true'),
         fetch('/api/commitments?status=active'),
@@ -183,7 +199,7 @@ export default function DashboardPage() {
     <div className="max-w-4xl mx-auto space-y-8 px-1">
       {/* Greeting + date */}
       <div>
-        <h1 className="text-2xl font-semibold text-slate-800">Good {getTimeOfDay()}</h1>
+        <h1 className="text-2xl font-semibold text-slate-800">Good {getTimeOfDay()}{userName ? `, ${userName}` : ''}</h1>
         <p className="text-sm text-slate-400 mt-0.5">{today}</p>
       </div>
 
