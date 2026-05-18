@@ -1,7 +1,9 @@
-import { NextResponse, after } from 'next/server'
+import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { transcribeAudio } from '@/lib/ai/transcribe'
 import { processMemory } from '@/lib/pipeline/process-memory'
+
+export const maxDuration = 120 // Allow up to 120s for transcription + processing
 
 export async function POST(request: Request) {
   const supabase = await createClient()
@@ -53,14 +55,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  // Process memory after response is sent
-  after(async () => {
-    try {
-      await processMemory(data.id)
-    } catch (err) {
-      console.error('Background processing failed for memory:', data.id, err)
-    }
-  })
+  // Process synchronously — correctness before speed
+  let processingError: string | null = null
+  try {
+    await processMemory(data.id)
+  } catch (err) {
+    processingError = err instanceof Error ? err.message : String(err)
+    console.error('Processing failed for memory:', data.id, err)
+  }
 
-  return NextResponse.json({ memory: data }, { status: 201 })
+  return NextResponse.json({
+    memory: data,
+    processing: processingError ? { success: false, error: processingError } : { success: true },
+  }, { status: 201 })
 }

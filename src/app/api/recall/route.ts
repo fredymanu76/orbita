@@ -47,68 +47,80 @@ export async function POST(request: Request) {
   // Run multi-source search in parallel
   const embedding = await generateEmbedding(query)
 
+  // Run searches in parallel — each wrapped to fail gracefully if table/RPC doesn't exist
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const safeQuery = async (fn: () => PromiseLike<{ data: any; error: any }>): Promise<any[] | null> => {
+    try {
+      const result = await fn()
+      if (result.error) return null
+      return result.data
+    } catch {
+      return null
+    }
+  }
+
   const [
-    memoryResults,
-    threadResults,
-    peopleResults,
-    commitmentResults,
-    followUpResults,
-    textFallbackResults,
+    memoryData,
+    threadData,
+    peopleData,
+    commitmentData,
+    followUpData,
+    textFallbackData,
   ] = await Promise.all([
     // 1. Memory embeddings (existing)
-    admin.rpc('match_memories', {
+    safeQuery(() => admin.rpc('match_memories', {
       query_embedding: JSON.stringify(embedding),
       match_threshold: 0.35,
       match_count: 8,
       filter_user_id: user.id,
-    }),
+    })),
 
-    // 2. Thread embeddings
-    admin.rpc('match_threads', {
+    // 2. Thread embeddings — may not exist if migrations not applied
+    safeQuery(() => admin.rpc('match_threads', {
       query_embedding: JSON.stringify(embedding),
       match_threshold: 0.35,
       match_count: 5,
       filter_user_id: user.id,
-    }),
+    })),
 
     // 3. People by name (text match in query)
-    admin
+    safeQuery(() => admin
       .from('people')
       .select('id, name, relationship, context, mention_count, last_mentioned_at')
       .eq('user_id', user.id)
       .or(`name.ilike.%${query}%`)
-      .limit(5),
+      .limit(5)),
 
     // 4. Commitments (text search on description)
-    admin
+    safeQuery(() => admin
       .from('commitments')
       .select('id, description, status, direction, due_date, person_id, importance, people(name)')
       .eq('user_id', user.id)
       .or(`description.ilike.%${query}%`)
-      .limit(10),
+      .limit(10)),
 
     // 5. Follow-up candidates (text search)
-    admin
+    safeQuery(() => admin
       .from('follow_up_candidates')
       .select('id, description, detected_intent, status, follow_up_due_at')
       .eq('user_id', user.id)
       .or(`description.ilike.%${query}%,detected_intent.ilike.%${query}%`)
-      .limit(5),
+      .limit(5)),
 
-    // 6. Text fallback search (fuzzy trigram)
-    admin.rpc('search_memories_text', {
+    // 6. Text fallback search (fuzzy trigram) — may not exist if migrations not applied
+    safeQuery(() => admin.rpc('search_memories_text', {
       search_query: query,
       filter_user_id: user.id,
       result_limit: 5,
-    }),
+    })),
   ])
 
-  const memories = (memoryResults.data || []) as MemoryMatch[]
-  const threads = (threadResults.data || []) as ThreadMatch[]
-  const people = peopleResults.data || []
-  const commitments = commitmentResults.data || []
-  const followUps = followUpResults.data || []
-  const textMatches = (textFallbackResults.data || []) as MemoryMatch[]
+  const memories = (memoryData || []) as MemoryMatch[]
+  const threads = (threadData || []) as ThreadMatch[]
+  const people = (peopleData || []) as { id: string; name: string; relationship: string | null; context: string | null; mention_count: number; last_mentioned_at: string | null }[]
+  const commitments = (commitmentData || []) as { id: string; description: string; status: string; direction: string; due_date: string | null; person_id: string | null; importance: number | null; people: unknown }[]
+  const followUps = (followUpData || []) as { id: string; description: string; detected_intent: string; status: string; follow_up_due_at: string | null }[]
+  const textMatches = (textFallbackData || []) as MemoryMatch[]
 
   // Merge text fallback results with vector results (deduplicating)
   const seenMemoryIds = new Set(memories.map(m => m.id))

@@ -136,23 +136,46 @@ export async function processMemory(memoryId: string) {
     const decayCoefficient = getEffectiveDecayCoefficient(0.05, entities.importance)
 
     // 8. Update memory with processed data + life stream fields
-    await supabase
+    // Try with new columns first, fall back to basic columns if they don't exist yet
+    const updatePayload: Record<string, unknown> = {
+      summary: entities.summary,
+      importance: entities.importance,
+      emotional_tone: entities.emotional_tone,
+      embedding: JSON.stringify(embedding),
+      event_type: eventType,
+      decay_coefficient: decayCoefficient,
+      continuity_retention: 1.0,
+      last_decay_at: new Date().toISOString(),
+      extraction_confidence: confidence,
+      processing_error: null,
+      processed: true,
+      updated_at: new Date().toISOString(),
+    }
+
+    const { error: updateError } = await supabase
       .from('memory_items')
-      .update({
-        summary: entities.summary,
-        importance: entities.importance,
-        emotional_tone: entities.emotional_tone,
-        embedding: JSON.stringify(embedding),
-        event_type: eventType,
-        decay_coefficient: decayCoefficient,
-        continuity_retention: 1.0,
-        last_decay_at: new Date().toISOString(),
-        extraction_confidence: confidence,
-        processing_error: null,
-        processed: true,
-        updated_at: new Date().toISOString(),
-      })
+      .update(updatePayload)
       .eq('id', memoryId)
+
+    // If update failed (possibly missing columns), try without new columns
+    if (updateError) {
+      console.warn('Full update failed, trying basic columns:', updateError.message)
+      await supabase
+        .from('memory_items')
+        .update({
+          summary: entities.summary,
+          importance: entities.importance,
+          emotional_tone: entities.emotional_tone,
+          embedding: JSON.stringify(embedding),
+          event_type: eventType,
+          decay_coefficient: decayCoefficient,
+          continuity_retention: 1.0,
+          last_decay_at: new Date().toISOString(),
+          processed: true,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', memoryId)
+    }
 
     // 9. Link to thread (auto-cluster into threads)
     // Requires BOTH extraction confidence AND entity confidence
@@ -218,16 +241,24 @@ export async function processMemory(memoryId: string) {
     console.error('Error processing memory:', memoryId, error)
     // Record the error so stuck items show why they failed
     try {
-      await supabase
+      // Try with processing_error column first
+      const { error: errUpdateError } = await supabase
         .from('memory_items')
         .update({
           processing_error: error instanceof Error ? error.message : String(error),
           updated_at: new Date().toISOString(),
         })
         .eq('id', memoryId)
+
+      // If processing_error column doesn't exist, at least log it
+      if (errUpdateError) {
+        console.error('Could not record processing error (column may not exist):', errUpdateError.message)
+      }
     } catch {
       // If we can't even record the error, just log it
     }
+    // Re-throw so callers know processing failed
+    throw error
   }
 }
 

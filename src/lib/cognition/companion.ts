@@ -55,16 +55,23 @@ export async function openContextWindow(userId: string): Promise<{
   const contextWindow = await getContextWindow(userId)
   const followUps = await getPendingFollowUps(userId, 5)
 
-  // Fetch threads from the new threads table
-  const { data: activeThreads } = await supabase
-    .from('threads')
-    .select('id, title, status, thread_type, continuity_retention, commitment_count, last_activity_at, importance')
-    .eq('user_id', userId)
-    .not('status', 'in', '("completed")')
-    .order('last_activity_at', { ascending: false })
-    .limit(10)
+  // Fetch threads from the new threads table — fail gracefully if table doesn't exist yet
+  let threads: { id: string; title: string; status: string; thread_type: string; continuity_retention: number; commitment_count: number; last_activity_at: string; importance: number }[] = []
+  try {
+    const { data: activeThreads, error: threadsError } = await supabase
+      .from('threads')
+      .select('id, title, status, thread_type, continuity_retention, commitment_count, last_activity_at, importance')
+      .eq('user_id', userId)
+      .not('status', 'in', '("completed")')
+      .order('last_activity_at', { ascending: false })
+      .limit(10)
 
-  const threads = activeThreads || []
+    if (!threadsError && activeThreads) {
+      threads = activeThreads
+    }
+  } catch {
+    // threads table may not exist yet — that's ok
+  }
 
   // Generate ambient signals — deterministic, not GPT
   const signals = await generateAmbientSignals(supabase, userId, threads, followUps)
@@ -97,22 +104,32 @@ export async function openContextWindow(userId: string): Promise<{
   // Build context for restoration (only if there's something worth saying)
   const contextSummary = buildContextSummary(contextWindow, threads, followUps, signals)
 
-  // Generate restoration opening via GPT — but grounded in structured data
-  const openai = getOpenAIClient()
-  const completion = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
-    messages: [
-      { role: 'system', content: COMPANION_SYSTEM_PROMPT },
-      {
-        role: 'user',
-        content: `Generate a continuity restoration opening for the user. Be specific, use names and thread titles. State confidence levels where uncertain. Here is their current state:\n\n${contextSummary}`,
-      },
-    ],
-    temperature: 0.3,
-    max_tokens: 400,
-  })
+  // HARD RULE: If there is no data at all, return a deterministic message.
+  // NEVER call GPT with empty context — it will fabricate names and situations.
+  const hasAnyData = threads.length > 0 || signals.length > 0 || followUps.length > 0 ||
+    contextWindow.life_state.key_people.length > 0
 
-  const restoration = completion.choices[0].message.content || 'Your continuity state is clear. No threads need attention.'
+  let restoration: string
+
+  if (!hasAnyData) {
+    restoration = 'No continuity data available yet. Capture some thoughts, conversations, or commitments and your continuity state will build from there.'
+  } else {
+    const openai = getOpenAIClient()
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: COMPANION_SYSTEM_PROMPT },
+        {
+          role: 'user',
+          content: `Generate a continuity restoration opening for the user. Be specific, use names and thread titles. State confidence levels where uncertain. CRITICAL: Only mention people, threads, and commitments that appear in the data below. If a section is empty, do not invent content for it. Here is their current state:\n\n${contextSummary}`,
+        },
+      ],
+      temperature: 0.3,
+      max_tokens: 400,
+    })
+
+    restoration = completion.choices[0].message.content || 'Your continuity state is clear. No threads need attention.'
+  }
 
   // Save messages
   await supabase.from('continuity_window_messages').insert([
@@ -223,11 +240,32 @@ export async function continueInWindow(
     }
   }
 
-  const contextStr = contextParts.length > 0 ? `\n[Context from life stream:\n${contextParts.join('\n')}]\n\n` : ''
+  const hasContext = contextParts.length > 0
+  const contextStr = hasContext ? `\n[Context from life stream:\n${contextParts.join('\n')}]\n\n` : ''
 
-  // Build conversation for GPT
+  // HARD RULE: If no context found, tell the user directly. Do NOT let GPT fabricate.
+  if (!hasContext) {
+    const response = "I don't have any stored context related to that. If you've captured relevant thoughts or conversations, they may not have been processed yet. You can check the pipeline status at /debug/pipeline."
+
+    await supabase.from('continuity_window_messages').insert({
+      window_id: windowId,
+      role: 'assistant',
+      content: response,
+      source_memory_ids: [],
+      context_nodes: { threads: 0, memories: 0 },
+    })
+
+    await supabase
+      .from('continuity_windows')
+      .update({ active_at: new Date().toISOString() })
+      .eq('id', windowId)
+
+    return response
+  }
+
+  // Build conversation for GPT — only when we have real data
   const conversationMessages = [
-    { role: 'system' as const, content: COMPANION_SYSTEM_PROMPT },
+    { role: 'system' as const, content: COMPANION_SYSTEM_PROMPT + '\n\nCRITICAL: Only reference people, threads, and facts that appear in the context data. If you cannot answer from the data provided, say so. Never invent names, relationships, or situations.' },
     ...(messages || []).map(m => ({
       role: m.role as 'system' | 'assistant' | 'user',
       content: m.content,
