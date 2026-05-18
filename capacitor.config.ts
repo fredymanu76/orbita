@@ -7,7 +7,7 @@ const config: CapacitorConfig = {
   server: {
     // Remote URL pattern — the WebView loads the deployed Vercel app.
     // Update this to your production Vercel URL or custom domain.
-    url: 'https://continuum-app.vercel.app',
+    url: 'https://continuum-brown.vercel.app',
     cleartext: false,
   },
   plugins: {
@@ -15,7 +15,7 @@ const config: CapacitorConfig = {
       launchAutoHide: true,
       androidScaleType: 'CENTER_CROP',
       showSpinner: false,
-      backgroundColor: '#FAF9F7',
+      backgroundColor: '#0D1230',
     },
     StatusBar: {
       style: 'LIGHT',
