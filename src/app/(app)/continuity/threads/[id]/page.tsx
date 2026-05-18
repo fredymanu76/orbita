@@ -58,23 +58,18 @@ interface ThreadCapture {
 }
 
 interface ThreadPerson {
-  entity_id: string
-  people: {
-    id: string
-    name: string
-    relationship: string | null
-  }
+  id: string
+  name: string
+  relationship: string | null
 }
 
 interface ThreadCommitment {
-  entity_id: string
-  commitments: {
-    id: string
-    description: string
-    status: string
-    direction: string
-    due_date: string | null
-  }
+  id: string
+  description: string
+  status: string
+  direction: string
+  due_date: string | null
+  person_id: string | null
 }
 
 const EVENT_ICONS: Record<string, typeof Brain> = {
@@ -105,10 +100,11 @@ export default function ThreadDetailPage() {
         const res = await fetch(`/api/threads/${threadId}`)
         if (res.ok) {
           const data = await res.json()
-          setThread(data.thread)
-          setCaptures(data.captures || [])
-          setPeople(data.people || [])
-          setCommitments(data.commitments || [])
+          const t = data.thread
+          setThread(t)
+          setCaptures(t?.captures || [])
+          setPeople(t?.people || [])
+          setCommitments(t?.commitments || [])
         }
       } catch {
         // Silently fail
@@ -242,10 +238,7 @@ export default function ThreadDetailPage() {
         <div>
           <p className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">People</p>
           <div className="flex gap-3">
-            {people.map(tp => {
-              const p = tp.people
-              if (!p) return null
-              return (
+            {people.map(p => (
                 <Link key={p.id} href={`/people/${p.id}`}>
                   <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer">
                     <div className="w-7 h-7 rounded-full bg-blue-50 flex items-center justify-center text-xs font-medium text-blue-500">
@@ -259,8 +252,7 @@ export default function ThreadDetailPage() {
                     </div>
                   </div>
                 </Link>
-              )
-            })}
+            ))}
           </div>
         </div>
       )}
@@ -270,10 +262,7 @@ export default function ThreadDetailPage() {
         <div>
           <p className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Commitments</p>
           <div className="space-y-2">
-            {commitments.map(tc => {
-              const c = tc.commitments
-              if (!c) return null
-              return (
+            {commitments.map(c => (
                 <div key={c.id} className="flex items-center gap-3 px-4 py-3 rounded-lg bg-slate-50 text-sm">
                   <Handshake className={`h-4 w-4 flex-shrink-0 ${
                     c.status === 'active' ? 'text-amber-400' :
@@ -289,8 +278,7 @@ export default function ThreadDetailPage() {
                     <span className="text-xs text-slate-400">{format(new Date(c.due_date), 'MMM d')}</span>
                   )}
                 </div>
-              )
-            })}
+            ))}
           </div>
         </div>
       )}

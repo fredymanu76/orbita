@@ -15,7 +15,7 @@ export async function GET(request: Request) {
 
   let query = supabase
     .from('commitments')
-    .select('*, people(id, name)')
+    .select('*, person:people(id, name)')
     .eq('user_id', user.id)
     .order('created_at', { ascending: false })
 
