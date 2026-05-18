@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Mic, Square, Pause, Play, RotateCcw, Send } from 'lucide-react'
 import { useVoiceRecorder } from '@/hooks/use-voice-recorder'
 import { toast } from 'sonner'
+import { createClient } from '@/lib/supabase/client'
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60).toString().padStart(2, '0')
@@ -89,12 +90,28 @@ export function VoiceRecorder() {
     setUploading(true)
 
     try {
-      const formData = new FormData()
-      formData.append('audio', audioBlob, 'recording.webm')
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('Not authenticated')
 
+      // Upload directly to Supabase Storage (bypasses Vercel body limit)
+      const fileName = `${user.id}/${Date.now()}-recording.webm`
+
+      const { error: uploadError } = await supabase.storage
+        .from('audio-recordings')
+        .upload(fileName, audioBlob, { contentType: 'audio/webm' })
+
+      if (uploadError) throw new Error(uploadError.message)
+
+      const { data: urlData } = supabase.storage
+        .from('audio-recordings')
+        .getPublicUrl(fileName)
+
+      // Send small JSON payload to API for transcription + memory creation
       const res = await fetch('/api/capture/voice', {
         method: 'POST',
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ audioUrl: urlData.publicUrl }),
       })
 
       if (!res.ok) {

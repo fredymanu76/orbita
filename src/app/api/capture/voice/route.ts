@@ -10,28 +10,23 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const formData = await request.formData()
-  const audioFile = formData.get('audio') as File | null
+  // Client uploads audio directly to Supabase Storage, then sends JSON here
+  const { audioUrl } = await request.json()
 
-  if (!audioFile) {
-    return NextResponse.json({ error: 'Audio file is required' }, { status: 400 })
+  if (!audioUrl) {
+    return NextResponse.json({ error: 'audioUrl is required' }, { status: 400 })
   }
 
-  // Upload to Supabase Storage
-  const fileName = `${user.id}/${Date.now()}-${audioFile.name || 'recording.webm'}`
-  const { error: uploadError } = await supabase.storage
-    .from('audio-recordings')
-    .upload(fileName, audioFile, {
-      contentType: audioFile.type || 'audio/webm',
-    })
-
-  if (uploadError) {
-    return NextResponse.json({ error: 'Failed to upload audio' }, { status: 500 })
+  // Download audio from Storage URL for transcription
+  const audioResponse = await fetch(audioUrl)
+  if (!audioResponse.ok) {
+    return NextResponse.json({ error: 'Failed to fetch audio from storage' }, { status: 500 })
   }
 
-  const { data: urlData } = supabase.storage
-    .from('audio-recordings')
-    .getPublicUrl(fileName)
+  const audioBlob = await audioResponse.blob()
+  const audioFile = new File([audioBlob], 'recording.webm', {
+    type: audioBlob.type || 'audio/webm',
+  })
 
   // Transcribe
   const transcription = await transcribeAudio(audioFile)
@@ -47,7 +42,7 @@ export async function POST(request: Request) {
       user_id: user.id,
       type: 'voice',
       raw_content: transcription,
-      audio_url: urlData.publicUrl,
+      audio_url: audioUrl,
       processed: false,
     })
     .select()

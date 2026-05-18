@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { ImagePlus, X, Send } from 'lucide-react'
 import { toast } from 'sonner'
+import { createClient } from '@/lib/supabase/client'
 
 export function ImageUpload() {
   const [file, setFile] = useState<File | null>(null)
@@ -43,18 +44,37 @@ export function ImageUpload() {
     setLoading(true)
 
     try {
-      const formData = new FormData()
-      formData.append('image', file)
-      if (caption.trim()) formData.append('caption', caption.trim())
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('Not authenticated')
 
+      // Upload directly to Supabase Storage (bypasses Vercel body limit)
+      const ext = file.name?.split('.').pop() || 'jpg'
+      const fileName = `${user.id}/${Date.now()}.${ext}`
+
+      const { error: uploadError } = await supabase.storage
+        .from('image-uploads')
+        .upload(fileName, file, { contentType: file.type || 'image/jpeg' })
+
+      if (uploadError) throw new Error(uploadError.message)
+
+      const { data: urlData } = supabase.storage
+        .from('image-uploads')
+        .getPublicUrl(fileName)
+
+      // Create memory record via API (small JSON payload only)
       const res = await fetch('/api/capture/image', {
         method: 'POST',
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          imageUrl: urlData.publicUrl,
+          caption: caption.trim() || 'Image capture',
+        }),
       })
 
       if (!res.ok) {
         const data = await res.json()
-        throw new Error(data.error || 'Failed to upload')
+        throw new Error(data.error || 'Failed to save')
       }
 
       toast.success('Image captured', {

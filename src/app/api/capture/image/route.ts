@@ -9,30 +9,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const formData = await request.formData()
-  const imageFile = formData.get('image') as File | null
-  const caption = formData.get('caption') as string | null
+  // Client uploads image directly to Supabase Storage, then sends JSON here
+  const { imageUrl, caption } = await request.json()
 
-  if (!imageFile) {
-    return NextResponse.json({ error: 'Image file is required' }, { status: 400 })
+  if (!imageUrl) {
+    return NextResponse.json({ error: 'imageUrl is required' }, { status: 400 })
   }
-
-  // Upload to Supabase Storage
-  const ext = imageFile.name?.split('.').pop() || 'jpg'
-  const fileName = `${user.id}/${Date.now()}.${ext}`
-  const { error: uploadError } = await supabase.storage
-    .from('image-uploads')
-    .upload(fileName, imageFile, {
-      contentType: imageFile.type || 'image/jpeg',
-    })
-
-  if (uploadError) {
-    return NextResponse.json({ error: 'Failed to upload image' }, { status: 500 })
-  }
-
-  const { data: urlData } = supabase.storage
-    .from('image-uploads')
-    .getPublicUrl(fileName)
 
   const { data, error } = await supabase
     .from('memory_items')
@@ -40,7 +22,7 @@ export async function POST(request: Request) {
       user_id: user.id,
       type: 'image',
       raw_content: caption || 'Image capture',
-      image_url: urlData.publicUrl,
+      image_url: imageUrl,
       processed: false,
     })
     .select()
