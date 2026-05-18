@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -9,50 +9,61 @@ import {
   Pause,
   Play,
   Check,
-  X,
   Clock,
   AlertTriangle,
-  RotateCcw,
-  Eye,
+  Timer,
+  Handshake,
+  Users,
+  ChevronRight,
 } from 'lucide-react'
-import { format } from 'date-fns'
-import type { InterruptedThread } from '@/lib/types'
+import { formatDistanceToNow } from 'date-fns'
+import Link from 'next/link'
+import type { Thread, ThreadStatus } from '@/lib/types'
 
-type ThreadFilter = 'all' | 'active' | 'interrupted' | 'paused' | 'dormant' | 'restored' | 'forgotten' | 'resolved'
+type ThreadFilter = 'all' | 'active' | 'unresolved' | 'time_sensitive' | 'paused' | 'forgotten_risk' | 'completed'
 
 const FILTERS: { key: ThreadFilter; label: string }[] = [
   { key: 'all', label: 'All' },
   { key: 'active', label: 'Active' },
-  { key: 'interrupted', label: 'Interrupted' },
+  { key: 'unresolved', label: 'Unresolved' },
+  { key: 'time_sensitive', label: 'Time sensitive' },
   { key: 'paused', label: 'Paused' },
-  { key: 'dormant', label: 'Dormant' },
-  { key: 'forgotten', label: 'Forgotten' },
-  { key: 'restored', label: 'Restored' },
-  { key: 'resolved', label: 'Resolved' },
+  { key: 'forgotten_risk', label: 'At risk' },
+  { key: 'completed', label: 'Completed' },
 ]
 
-const STATUS_STYLES: Record<string, { bg: string; text: string; icon: typeof GitBranch }> = {
-  active: { bg: 'bg-emerald-50', text: 'text-emerald-600', icon: Play },
-  paused: { bg: 'bg-blue-50', text: 'text-blue-600', icon: Pause },
-  interrupted: { bg: 'bg-amber-50', text: 'text-amber-600', icon: AlertTriangle },
-  dormant: { bg: 'bg-slate-50', text: 'text-slate-500', icon: Clock },
-  forgotten: { bg: 'bg-red-50', text: 'text-red-500', icon: AlertTriangle },
-  restored: { bg: 'bg-violet-50', text: 'text-violet-600', icon: RotateCcw },
-  resolved: { bg: 'bg-emerald-50', text: 'text-emerald-600', icon: Check },
-  dismissed: { bg: 'bg-slate-50', text: 'text-slate-400', icon: X },
+const STATUS_COLORS: Record<string, string> = {
+  active: 'text-emerald-600 bg-emerald-50',
+  unresolved: 'text-orange-600 bg-orange-50',
+  paused: 'text-blue-600 bg-blue-50',
+  completed: 'text-slate-400 bg-slate-50',
+  forgotten_risk: 'text-red-500 bg-red-50',
+  time_sensitive: 'text-amber-600 bg-amber-50',
+  emotionally_sensitive: 'text-pink-600 bg-pink-50',
+}
+
+const THREAD_BORDERS: Record<string, string> = {
+  relationship: 'border-l-blue-300',
+  project: 'border-l-purple-300',
+  obligation: 'border-l-amber-300',
+  concern: 'border-l-rose-300',
+  planning: 'border-l-indigo-300',
+  idea: 'border-l-cyan-300',
+  emotional: 'border-l-pink-300',
+  admin: 'border-l-slate-300',
+  recurring: 'border-l-teal-300',
+  general: 'border-l-gray-300',
 }
 
 export default function ThreadsPage() {
-  const [threads, setThreads] = useState<(InterruptedThread & { decay_adjusted_score?: number })[]>([])
+  const [threads, setThreads] = useState<Thread[]>([])
   const [filter, setFilter] = useState<ThreadFilter>('all')
   const [loading, setLoading] = useState(true)
-  const [expandedThread, setExpandedThread] = useState<string | null>(null)
-  const [reconstructions, setReconstructions] = useState<Record<string, string>>({})
 
   useEffect(() => {
     async function fetchThreads() {
       try {
-        const res = await fetch('/api/threads')
+        const res = await fetch('/api/threads?source=threads_table')
         if (res.ok) {
           const data = await res.json()
           setThreads(data.threads || [])
@@ -74,52 +85,28 @@ export default function ThreadsPage() {
         body: JSON.stringify({ status }),
       })
       setThreads(prev =>
-        prev.map(t => t.id === threadId ? { ...t, status: status as InterruptedThread['status'] } : t)
+        prev.map(t => t.id === threadId ? { ...t, status: status as ThreadStatus } : t)
       )
     } catch {
       // Silently fail
     }
   }
 
-  async function handleReconstruct(threadId: string) {
-    if (reconstructions[threadId]) {
-      setExpandedThread(expandedThread === threadId ? null : threadId)
-      return
-    }
-    try {
-      const res = await fetch(`/api/threads/${threadId}`)
-      if (res.ok) {
-        const data = await res.json()
-        setReconstructions(prev => ({ ...prev, [threadId]: data.reconstruction }))
-        setExpandedThread(threadId)
-      }
-    } catch {
-      // Silently fail
-    }
-  }
+  const filtered = filter === 'all' ? threads : threads.filter(t => t.status === filter)
 
-  const filtered = filter === 'all'
-    ? threads
-    : threads.filter(t => t.status === filter)
-
-  // Counts per status
+  // Counts
   const counts: Record<string, number> = {}
   for (const t of threads) {
     counts[t.status] = (counts[t.status] || 0) + 1
   }
 
-  // High cognitive weight: threads with retention > 0.6 and high interruption score
-  const highWeightCount = threads.filter(
-    t => t.continuity_retention > 0.6 && t.interruption_score > 0.5
-  ).length
-
   if (loading) {
     return (
       <div className="max-w-3xl mx-auto space-y-6">
-        <h1 className="text-2xl font-semibold text-slate-800">Continuity Threads</h1>
+        <div className="h-7 bg-slate-100/60 rounded w-48 animate-pulse" />
         <div className="space-y-3">
           {[1, 2, 3].map(i => (
-            <div key={i} className="h-24 bg-slate-100 rounded-lg animate-pulse" />
+            <div key={i} className="h-20 bg-slate-50/60 rounded-lg animate-pulse" />
           ))}
         </div>
       </div>
@@ -129,37 +116,28 @@ export default function ThreadsPage() {
   return (
     <div className="max-w-3xl mx-auto space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-slate-800">Continuity Threads</h1>
-        <p className="text-sm text-slate-500 mt-0.5">Track and restore your cognitive threads</p>
+        <h1 className="text-2xl font-semibold text-slate-800">Threads</h1>
+        <p className="text-sm text-slate-400 mt-0.5">Your cognitive threads — ongoing situations, commitments, and contexts</p>
       </div>
 
-      {/* Status Summary Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {[
-          { label: 'Active', count: counts['active'] || 0, color: 'text-emerald-600' },
-          { label: 'Interrupted', count: counts['interrupted'] || 0, color: 'text-amber-600' },
-          { label: 'Restored', count: (counts['restored'] || 0), color: 'text-violet-600' },
-          { label: 'High Weight', count: highWeightCount, color: 'text-red-600' },
-        ].map(card => (
-          <Card key={card.label}>
-            <CardContent className="pt-4 pb-4 text-center">
-              <p className="text-2xl font-bold text-slate-700">{card.count}</p>
-              <p className={`text-xs font-medium ${card.color}`}>{card.label}</p>
-            </CardContent>
-          </Card>
-        ))}
+      {/* Summary */}
+      <div className="flex items-center gap-6 text-xs text-slate-400">
+        <span>{threads.length} total</span>
+        {counts['active'] && <span className="text-emerald-500">{counts['active']} active</span>}
+        {counts['unresolved'] && <span className="text-orange-500">{counts['unresolved']} unresolved</span>}
+        {counts['forgotten_risk'] && <span className="text-red-400">{counts['forgotten_risk']} at risk</span>}
       </div>
 
-      {/* Filter Tabs */}
+      {/* Filters */}
       <div className="flex gap-1 flex-wrap">
         {FILTERS.map(f => (
           <button
             key={f.key}
             onClick={() => setFilter(f.key)}
-            className={`px-3 py-1.5 text-xs rounded-full font-medium transition-colors ${
+            className={`px-3 py-1.5 text-xs rounded-full transition-colors ${
               filter === f.key
                 ? 'bg-slate-800 text-white'
-                : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                : 'bg-slate-50 text-slate-400 hover:bg-slate-100'
             }`}
           >
             {f.label}
@@ -168,47 +146,53 @@ export default function ThreadsPage() {
         ))}
       </div>
 
-      {/* Thread List */}
+      {/* Thread list */}
       {filtered.length === 0 ? (
-        <Card>
-          <CardContent className="py-8 text-center">
-            <p className="text-sm text-slate-400">No threads in this category.</p>
-          </CardContent>
-        </Card>
+        <div className="text-center py-12">
+          <GitBranch className="h-6 w-6 text-slate-200 mx-auto mb-3" />
+          <p className="text-sm text-slate-400">No threads in this category.</p>
+        </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-2">
           {filtered.map(thread => {
-            const style = STATUS_STYLES[thread.status] || STATUS_STYLES['interrupted']
-            const StatusIcon = style.icon
-            const isExpanded = expandedThread === thread.id
+            const borderColor = THREAD_BORDERS[thread.thread_type] || THREAD_BORDERS.general
+            const statusStyle = STATUS_COLORS[thread.status] || STATUS_COLORS.active
 
             return (
-              <Card key={thread.id} className="overflow-hidden">
-                <CardContent className="pt-4 pb-4">
-                  <div className="flex items-start gap-3">
-                    <div className={`p-2 rounded-lg ${style.bg} flex-shrink-0`}>
-                      <StatusIcon className={`h-4 w-4 ${style.text}`} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <h3 className="text-sm font-medium text-slate-700 truncate">{thread.title}</h3>
-                        <Badge variant="outline" className={`text-[10px] ${style.bg} ${style.text}`}>
-                          {thread.status}
-                        </Badge>
+              <div key={thread.id} className={`border-l-[3px] ${borderColor} rounded-r-lg bg-white`}>
+                <div className="px-4 py-3">
+                  <div className="flex items-start justify-between">
+                    <Link href={`/continuity/threads/${thread.id}`} className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 cursor-pointer group">
+                        <h3 className="text-sm text-slate-700 truncate group-hover:text-slate-900 transition-colors">
+                          {thread.title}
+                        </h3>
+                        <ChevronRight className="h-3 w-3 text-slate-200 group-hover:text-slate-400 transition-colors flex-shrink-0" />
                       </div>
-                      {thread.thread_summary && (
-                        <p className="text-xs text-slate-500 line-clamp-2 mb-2">{thread.thread_summary}</p>
-                      )}
-                      <div className="flex items-center gap-4 text-[11px] text-slate-400">
-                        <span>Retention: {Math.round(thread.continuity_retention * 100)}%</span>
-                        <span>Score: {(thread.interruption_score * 100).toFixed(0)}%</span>
-                        <span>Last active: {format(new Date(thread.last_activity_at), 'MMM d, h:mm a')}</span>
-                      </div>
+                    </Link>
+                    <Badge variant="outline" className={`text-[10px] py-0 border-0 flex-shrink-0 ${statusStyle}`}>
+                      {thread.status.replace('_', ' ')}
+                    </Badge>
+                  </div>
 
-                      {/* Retention bar */}
-                      <div className="mt-2 w-full bg-slate-100 rounded-full h-1.5">
+                  <div className="flex items-center justify-between mt-2">
+                    <div className="flex items-center gap-4 text-[11px] text-slate-400">
+                      <span className="flex items-center gap-1">
+                        <GitBranch className="h-3 w-3" /> {thread.capture_count}
+                      </span>
+                      {thread.commitment_count > 0 && (
+                        <span className="flex items-center gap-1">
+                          <Handshake className="h-3 w-3" /> {thread.commitment_count}
+                        </span>
+                      )}
+                      <span>{formatDistanceToNow(new Date(thread.last_activity_at), { addSuffix: true })}</span>
+                    </div>
+
+                    {/* Retention bar */}
+                    <div className="flex items-center gap-2">
+                      <div className="w-12 bg-slate-100 rounded-full h-1">
                         <div
-                          className="h-1.5 rounded-full transition-all duration-300"
+                          className="h-1 rounded-full"
                           style={{
                             width: `${thread.continuity_retention * 100}%`,
                             backgroundColor: thread.continuity_retention > 0.6 ? '#10b981'
@@ -216,85 +200,45 @@ export default function ThreadsPage() {
                           }}
                         />
                       </div>
-
-                      {/* Reconstruction */}
-                      {isExpanded && reconstructions[thread.id] && (
-                        <div className="mt-3 p-3 rounded-lg bg-violet-50/50 text-xs text-slate-600 leading-relaxed">
-                          {reconstructions[thread.id]}
-                        </div>
-                      )}
+                      <span className="text-[10px] text-slate-300">{Math.round(thread.continuity_retention * 100)}%</span>
                     </div>
                   </div>
 
-                  {/* Actions */}
-                  <div className="flex gap-1.5 mt-3 ml-11">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-xs h-7"
-                      onClick={() => handleReconstruct(thread.id)}
-                    >
-                      <Eye className="h-3 w-3 mr-1" />
-                      {isExpanded ? 'Hide' : 'Restore context'}
-                    </Button>
-                    {thread.status === 'interrupted' && (
-                      <>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-xs h-7"
-                          onClick={() => handleAction(thread.id, 'restored')}
-                        >
-                          <RotateCcw className="h-3 w-3 mr-1" />
-                          Resume
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-xs h-7"
-                          onClick={() => handleAction(thread.id, 'paused')}
-                        >
-                          <Pause className="h-3 w-3 mr-1" />
-                          Pause
-                        </Button>
-                      </>
-                    )}
-                    {thread.status === 'paused' && (
+                  {/* Quick actions */}
+                  {!['completed'].includes(thread.status) && (
+                    <div className="flex gap-1 mt-2">
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="text-xs h-7"
-                        onClick={() => handleAction(thread.id, 'restored')}
+                        className="text-[11px] h-6 px-2 text-emerald-500"
+                        onClick={() => handleAction(thread.id, 'completed')}
                       >
-                        <Play className="h-3 w-3 mr-1" />
-                        Resume
+                        <Check className="h-3 w-3 mr-0.5" /> Resolve
                       </Button>
-                    )}
-                    {!['resolved', 'dismissed'].includes(thread.status) && (
-                      <>
+                      {thread.status === 'active' && (
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="text-xs h-7 text-emerald-600"
-                          onClick={() => handleAction(thread.id, 'resolved')}
+                          className="text-[11px] h-6 px-2 text-slate-400"
+                          onClick={() => handleAction(thread.id, 'paused')}
                         >
-                          <Check className="h-3 w-3 mr-1" />
-                          Resolve
+                          <Pause className="h-3 w-3 mr-0.5" /> Pause
                         </Button>
+                      )}
+                      {thread.status === 'paused' && (
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="text-xs h-7 text-slate-400"
-                          onClick={() => handleAction(thread.id, 'dismissed')}
+                          className="text-[11px] h-6 px-2 text-blue-500"
+                          onClick={() => handleAction(thread.id, 'active')}
                         >
-                          <X className="h-3 w-3 mr-1" />
-                          Dismiss
+                          <Play className="h-3 w-3 mr-0.5" /> Resume
                         </Button>
-                      </>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
             )
           })}
         </div>

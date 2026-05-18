@@ -8,6 +8,23 @@ export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent'
 
 export type ReminderStatus = 'pending' | 'sent' | 'dismissed' | 'snoozed'
 
+// --- Fact vs Inference Separation ---
+// Facts: explicitly stated in content. Inferences: system-derived assumptions.
+// These must NEVER be mixed in storage or display.
+export type SourceType = 'fact' | 'inference'
+
+// Dimensional confidence — replaces single-scalar confidence
+export interface DimensionalConfidence {
+  entity: number       // How certain are we about extracted entities (people, orgs)?
+  intent: number       // How certain are we about the user's intent?
+  temporal: number     // How certain are we about time references?
+  relationship: number // How certain are we about person relationships?
+  commitment: number   // How certain are we about detected commitments?
+}
+
+// Graph node lifecycle status
+export type GraphNodeStatus = 'provisional' | 'confirmed' | 'deprecated'
+
 export interface Profile {
   id: string
   email: string
@@ -29,6 +46,9 @@ export interface MemoryItem {
   importance: number | null
   embedding: number[] | null
   processed: boolean
+  extraction_confidence: number | null
+  processing_error: string | null
+  primary_thread_id: string | null
   created_at: string
   updated_at: string
   people?: Person[]
@@ -111,6 +131,21 @@ export interface RecallQuery {
   created_at: string
 }
 
+export type IntentClassification =
+  | 'commitment'
+  | 'promise'
+  | 'unresolved_thought'
+  | 'concern'
+  | 'reflection'
+  | 'planning'
+  | 'reminder'
+  | 'relationship'
+  | 'follow_up'
+  | 'idea'
+  | 'emotional_support'
+  | 'admin_obligation'
+  | 'risk'
+
 export interface ExtractedEntities {
   summary: string
   importance: number
@@ -119,17 +154,23 @@ export interface ExtractedEntities {
     name: string
     relationship: string | null
     role: string | null
+    source_type: SourceType // 'fact' if name explicitly stated, 'inference' if implied
   }[]
   commitments: {
     description: string
     direction: CommitmentDirection
     due_date_text: string | null
     person_name: string | null
+    source_type: SourceType // 'fact' if explicitly promised, 'inference' if implied
+    has_explicit_verb: boolean // deterministic verification: "I will call" vs "Andy mentioned"
+    has_future_orientation: boolean // "tomorrow", "next week", "by Friday"
+    has_identifiable_actor: boolean // clear who is committing
   }[]
   tasks: {
     title: string
     priority: TaskPriority
     due_date_text: string | null
+    source_type: SourceType
   }[]
   dates_mentioned: {
     raw_text: string
@@ -139,12 +180,25 @@ export interface ExtractedEntities {
     description: string
     expected_timeframe: string | null
     confidence: number
+    source_type: SourceType
   }[]
-  emotional_analysis: {
-    primary_emotion: string
-    intensity: number
-    valence: number
-  } | null
+  emotional_signals: {
+    signal_type: 'frustration' | 'urgency' | 'stress' | 'concern' | 'excitement' | 'relief'
+    trigger_text: string // the exact text that triggered this signal
+    intensity: number // 0-1 based on language strength
+  }[]
+  intent_classifications: IntentClassification[]
+  organizations: {
+    name: string
+    role: string | null
+  }[]
+  projects: {
+    name: string
+    context: string | null
+  }[]
+  thread_hint: string | null
+  extraction_confidence: number
+  dimensional_confidence: DimensionalConfidence
 }
 
 // --- Continuity Intelligence Types ---
@@ -182,6 +236,10 @@ export interface CognitiveGraphNode {
   node_type: CognitiveGraphNodeType
   label: string
   properties: Record<string, unknown>
+  status: GraphNodeStatus
+  mention_count: number
+  first_seen_at: string
+  last_seen_at: string
   created_at: string
   updated_at: string
 }
@@ -355,4 +413,78 @@ export interface ContextWindow {
     trend: 'improving' | 'stable' | 'declining'
     recent_scores: number[]
   }
+}
+
+// --- Thread Types ---
+
+export type ThreadType =
+  | 'relationship'
+  | 'project'
+  | 'obligation'
+  | 'concern'
+  | 'planning'
+  | 'idea'
+  | 'emotional'
+  | 'admin'
+  | 'recurring'
+  | 'general'
+
+export type ThreadStatus =
+  | 'active'
+  | 'unresolved'
+  | 'paused'
+  | 'completed'
+  | 'forgotten_risk'
+  | 'emotionally_sensitive'
+  | 'time_sensitive'
+
+export interface Thread {
+  id: string
+  user_id: string
+  title: string
+  summary: string | null
+  thread_type: ThreadType
+  status: ThreadStatus
+  continuity_score: number
+  decay_coefficient: number
+  continuity_retention: number
+  last_activity_at: string
+  capture_count: number
+  entity_count: number
+  commitment_count: number
+  embedding: number[] | null
+  importance: number
+  emotional_valence: number
+  created_at: string
+  updated_at: string
+  // Joined data
+  captures?: ThreadCapture[]
+  entities?: ThreadEntity[]
+  people?: Person[]
+  commitments?: Commitment[]
+}
+
+export interface ThreadCapture {
+  id: string
+  thread_id: string
+  memory_id: string
+  link_confidence: number
+  link_type: SourceType // 'fact' if manually linked or very high CLC, 'inference' if auto-linked
+  created_at: string
+  memory?: MemoryItem
+}
+
+// Surfacing reason — deterministic explainability for every surfaced item
+export interface SurfacingReason {
+  primary: string        // e.g. "Contains unresolved commitment"
+  factors: string[]      // e.g. ["Referenced 3 times this week", "Last updated 5 days ago"]
+  data_source: 'thread' | 'commitment' | 'person' | 'follow_up' | 'decay'
+}
+
+export interface ThreadEntity {
+  id: string
+  thread_id: string
+  entity_type: 'person' | 'commitment' | 'task' | 'follow_up'
+  entity_id: string
+  created_at: string
 }

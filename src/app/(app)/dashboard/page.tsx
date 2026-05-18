@@ -1,425 +1,415 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { useEffect, useState, useCallback } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { QuickCaptureBar } from '@/components/capture/quick-capture-bar'
 import {
-  Sun,
   Handshake,
-  ListTodo,
-  ArrowRight,
-  Calendar,
   AlertCircle,
-  ArrowUpRight,
-  ArrowDownLeft,
-  HeartPulse,
-  Activity,
-  GitBranch,
-  X,
-  RotateCcw,
+  Clock,
+  CheckCircle2,
+  ChevronRight,
+  Timer,
+  Info,
 } from 'lucide-react'
-import { format } from 'date-fns'
+import { format, formatDistanceToNow } from 'date-fns'
 import Link from 'next/link'
-import type { Commitment, Task, InterruptedThread, ContinuityState } from '@/lib/types'
+import type { Commitment, ContinuityState, Person } from '@/lib/types'
 
-const STATE_COLORS: Record<ContinuityState, { bg: string; text: string; label: string }> = {
-  stable: { bg: 'bg-emerald-50', text: 'text-emerald-600', label: 'Stable' },
-  mild_fragmentation: { bg: 'bg-blue-50', text: 'text-blue-600', label: 'Mild fragmentation' },
-  overload_emerging: { bg: 'bg-amber-50', text: 'text-amber-600', label: 'Overload emerging' },
-  high_discontinuity: { bg: 'bg-orange-50', text: 'text-orange-600', label: 'High discontinuity' },
-  critical: { bg: 'bg-red-50', text: 'text-red-600', label: 'Critical' },
+interface DashboardThread {
+  id: string
+  title: string
+  summary: string | null
+  thread_type: string
+  status: string
+  capture_count: number
+  commitment_count: number
+  last_activity_at: string
+  continuity_retention: number
+  importance: number
+  emotional_valence: number
+  people?: { name: string }[]
 }
 
-const STATE_ARC_COLORS: Record<ContinuityState, string> = {
-  stable: '#10b981',
-  mild_fragmentation: '#3b82f6',
-  overload_emerging: '#f59e0b',
-  high_discontinuity: '#f97316',
-  critical: '#ef4444',
+// Deterministic surfacing reason — every item exposes "why am I seeing this?"
+interface SurfacedItem {
+  id: string
+  type: 'commitment_overdue' | 'commitment_due_today' | 'thread_time_sensitive' | 'thread_forgotten_risk' | 'person_neglected'
+  title: string
+  reasons: string[] // deterministic explainability
+  link: string
+  severity: 'high' | 'medium' | 'low'
+  data_source: string // which table/entity this came from
+}
+
+const STATE_META: Record<ContinuityState, { label: string; color: string; bg: string; description: string }> = {
+  stable: { label: 'Stable', color: 'text-emerald-600', bg: 'bg-emerald-50', description: 'Your threads are well-maintained' },
+  mild_fragmentation: { label: 'Mildly fragmented', color: 'text-blue-600', bg: 'bg-blue-50', description: 'Some threads may need attention' },
+  overload_emerging: { label: 'Saturated', color: 'text-amber-600', bg: 'bg-amber-50', description: 'Many active contexts competing for attention' },
+  high_discontinuity: { label: 'Drifting', color: 'text-orange-600', bg: 'bg-orange-50', description: 'Several threads are decaying without resolution' },
+  critical: { label: 'Overloaded', color: 'text-red-600', bg: 'bg-red-50', description: 'Significant continuity pressure — consider resolving some threads' },
+}
+
+const THREAD_TYPE_COLORS: Record<string, string> = {
+  relationship: 'border-l-blue-300',
+  project: 'border-l-purple-300',
+  obligation: 'border-l-amber-300',
+  concern: 'border-l-rose-300',
+  planning: 'border-l-indigo-300',
+  idea: 'border-l-cyan-300',
+  emotional: 'border-l-pink-300',
+  admin: 'border-l-slate-300',
+  recurring: 'border-l-teal-300',
+  general: 'border-l-gray-300',
 }
 
 export default function DashboardPage() {
-  const [brief, setBrief] = useState<string | null>(null)
-  const [briefLoading, setBriefLoading] = useState(true)
+  const [threads, setThreads] = useState<DashboardThread[]>([])
   const [commitments, setCommitments] = useState<Commitment[]>([])
-  const [tasks, setTasks] = useState<Task[]>([])
-  const [dataLoading, setDataLoading] = useState(true)
-  const [continuityScore, setContinuityScore] = useState<number | null>(null)
   const [continuityState, setContinuityState] = useState<ContinuityState>('stable')
   const [cognitiveLoad, setCognitiveLoad] = useState<number | null>(null)
-  const [threads, setThreads] = useState<(InterruptedThread & { decay_adjusted_score: number })[]>([])
+  const [peopleNeedingFollowUp, setPeopleNeedingFollowUp] = useState<(Person & { days_since: number })[]>([])
+  const [loading, setLoading] = useState(true)
+  const [expandedReasons, setExpandedReasons] = useState<Set<string>>(new Set())
 
-  useEffect(() => {
-    async function fetchBrief() {
-      try {
-        const res = await fetch('/api/daily-brief')
-        if (res.ok) {
-          const data = await res.json()
-          setBrief(data.brief)
-        }
-      } catch {
-        // Silently fail
-      } finally {
-        setBriefLoading(false)
+  const fetchData = useCallback(async () => {
+    try {
+      const [threadsRes, commitmentsRes, continuityRes, loadRes, peopleRes] = await Promise.all([
+        fetch('/api/threads?include_people=true'),
+        fetch('/api/commitments?status=active'),
+        fetch('/api/continuity'),
+        fetch('/api/cognitive-load'),
+        fetch('/api/people'),
+      ])
+
+      if (threadsRes.ok) {
+        const data = await threadsRes.json()
+        setThreads((data.threads || []).slice(0, 8))
       }
-    }
-
-    async function fetchData() {
-      try {
-        const [commitmentsRes, tasksRes] = await Promise.all([
-          fetch('/api/commitments?status=active'),
-          fetch('/api/tasks?status=pending'),
-        ])
-        const commitmentsData = await commitmentsRes.json()
-        const tasksData = await tasksRes.json()
-        setCommitments(commitmentsData.commitments || [])
-        setTasks(tasksData.tasks || [])
-      } catch {
-        // Silently fail
-      } finally {
-        setDataLoading(false)
+      if (commitmentsRes.ok) {
+        const data = await commitmentsRes.json()
+        setCommitments(data.commitments || [])
       }
-    }
-
-    async function fetchContinuity() {
-      try {
-        const [continuityRes, loadRes, threadsRes] = await Promise.all([
-          fetch('/api/continuity'),
-          fetch('/api/cognitive-load'),
-          fetch('/api/threads'),
-        ])
-        if (continuityRes.ok) {
-          const data = await continuityRes.json()
-          setContinuityScore(data.score)
-          setContinuityState(data.state)
-        }
-        if (loadRes.ok) {
-          const data = await loadRes.json()
-          setCognitiveLoad(data.reading?.load_score ?? null)
-        }
-        if (threadsRes.ok) {
-          const data = await threadsRes.json()
-          setThreads((data.threads || []).slice(0, 3))
-        }
-      } catch {
-        // Silently fail
+      if (continuityRes.ok) {
+        const data = await continuityRes.json()
+        setContinuityState(data.state)
       }
+      if (loadRes.ok) {
+        const data = await loadRes.json()
+        setCognitiveLoad(data.reading?.load_score ?? null)
+      }
+      if (peopleRes.ok) {
+        const data = await peopleRes.json()
+        const now = new Date()
+        const sorted = (data.people || [])
+          .filter((p: Person) => p.last_mentioned_at)
+          .map((p: Person) => ({
+            ...p,
+            days_since: Math.floor((now.getTime() - new Date(p.last_mentioned_at!).getTime()) / (1000 * 60 * 60 * 24)),
+          }))
+          .filter((p: Person & { days_since: number }) => p.days_since > 5)
+          .sort((a: { days_since: number }, b: { days_since: number }) => b.days_since - a.days_since)
+          .slice(0, 4)
+        setPeopleNeedingFollowUp(sorted)
+      }
+    } catch {
+      // Silently fail
+    } finally {
+      setLoading(false)
     }
-
-    fetchBrief()
-    fetchData()
-    fetchContinuity()
   }, [])
+
+  useEffect(() => { fetchData() }, [fetchData])
 
   const today = format(new Date(), 'EEEE, MMMM d')
   const todayStr = format(new Date(), 'yyyy-MM-dd')
+  const stateMeta = STATE_META[continuityState]
 
-  const dueToday = commitments.filter(c => c.due_date === todayStr)
-  const overdue = commitments.filter(c => c.due_date && c.due_date < todayStr)
-  const urgentTasks = tasks.filter(t => t.priority === 'urgent' || t.priority === 'high').slice(0, 5)
+  // Build surfaced items with deterministic reasons
+  const surfacedItems: SurfacedItem[] = []
 
-  async function handleThreadAction(threadId: string, status: 'resolved' | 'dismissed') {
-    try {
-      await fetch(`/api/threads/${threadId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status }),
+  // Overdue commitments
+  for (const c of commitments) {
+    if (c.due_date && c.due_date < todayStr) {
+      const daysOverdue = Math.floor((Date.now() - new Date(c.due_date).getTime()) / 86400000)
+      surfacedItems.push({
+        id: `commitment-${c.id}`,
+        type: 'commitment_overdue',
+        title: c.description,
+        reasons: [
+          `Due date was ${format(new Date(c.due_date), 'MMM d')} (${daysOverdue}d overdue)`,
+          `Status: active, not yet resolved`,
+          c.person ? `Involves ${c.person.name}` : 'No person linked',
+          `Source: commitments table`,
+        ],
+        link: c.source_memory_id ? `/continuity/threads/${c.source_memory_id}` : '#',
+        severity: daysOverdue > 7 ? 'high' : 'medium',
+        data_source: 'commitments',
       })
-      setThreads(prev => prev.filter(t => t.id !== threadId))
-    } catch {
-      // Silently fail
+    } else if (c.due_date === todayStr) {
+      surfacedItems.push({
+        id: `commitment-today-${c.id}`,
+        type: 'commitment_due_today',
+        title: c.description,
+        reasons: [
+          `Due today (${format(new Date(), 'MMM d')})`,
+          c.person ? `Involves ${c.person.name}` : 'No person linked',
+          `Source: commitments table`,
+        ],
+        link: '#',
+        severity: 'medium',
+        data_source: 'commitments',
+      })
     }
   }
 
-  const stateStyle = STATE_COLORS[continuityState]
-  const arcColor = STATE_ARC_COLORS[continuityState]
+  // Time-sensitive threads
+  for (const t of threads) {
+    if (t.status === 'time_sensitive') {
+      surfacedItems.push({
+        id: `thread-ts-${t.id}`,
+        type: 'thread_time_sensitive',
+        title: t.title,
+        reasons: [
+          'Contains commitment due within 48 hours',
+          `${t.commitment_count} active commitment${t.commitment_count === 1 ? '' : 's'}`,
+          `Last activity: ${formatDistanceToNow(new Date(t.last_activity_at), { addSuffix: true })}`,
+          `Source: threads table, status = time_sensitive`,
+        ],
+        link: `/continuity/threads/${t.id}`,
+        severity: 'high',
+        data_source: 'threads',
+      })
+    }
+    if (t.status === 'forgotten_risk') {
+      surfacedItems.push({
+        id: `thread-fr-${t.id}`,
+        type: 'thread_forgotten_risk',
+        title: t.title,
+        reasons: [
+          `Continuity retention: ${Math.round(t.continuity_retention * 100)}% (below 30% threshold)`,
+          `Last activity: ${formatDistanceToNow(new Date(t.last_activity_at), { addSuffix: true })}`,
+          `Status transitioned to forgotten_risk by decay engine`,
+          `Source: threads table, continuity_retention decay`,
+        ],
+        link: `/continuity/threads/${t.id}`,
+        severity: 'medium',
+        data_source: 'threads',
+      })
+    }
+  }
+
+  const activeThreads = threads.filter(t => !['completed', 'paused'].includes(t.status))
+  const unresolvedCount = threads.filter(t => ['unresolved', 'forgotten_risk', 'time_sensitive'].includes(t.status)).length
+
+  const toggleReasons = (id: string) => {
+    setExpandedReasons(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  if (loading) {
+    return (
+      <div className="max-w-3xl mx-auto space-y-8 px-1">
+        <div className="space-y-1">
+          <div className="h-7 bg-slate-100/60 rounded w-40 animate-pulse" />
+          <div className="h-4 bg-slate-50 rounded w-28 animate-pulse" />
+        </div>
+        <div className="h-12 bg-slate-50 rounded-lg animate-pulse" />
+        <div className="space-y-3">
+          {[1, 2, 3].map(i => (
+            <div key={i} className="h-20 bg-slate-50/60 rounded-lg animate-pulse" />
+          ))}
+        </div>
+      </div>
+    )
+  }
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
-      {/* Greeting */}
+    <div className="max-w-3xl mx-auto space-y-8 px-1">
+      {/* Greeting + state */}
       <div>
         <h1 className="text-2xl font-semibold text-slate-800">Good {getTimeOfDay()}</h1>
-        <p className="text-sm text-slate-500 mt-0.5">{today}</p>
+        <p className="text-sm text-slate-400 mt-0.5">{today}</p>
       </div>
 
       {/* Quick capture */}
-      <Card>
-        <CardContent className="pt-4 pb-4">
-          <QuickCaptureBar />
-        </CardContent>
-      </Card>
+      <QuickCaptureBar />
 
-      {/* Continuity Health + Cognitive Load */}
-      {continuityScore !== null && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {/* Continuity Health */}
-          <Card>
-            <CardContent className="pt-5 pb-5">
-              <div className="flex items-center gap-4">
-                <div className="relative w-16 h-16 flex-shrink-0">
-                  <svg viewBox="0 0 36 36" className="w-16 h-16 -rotate-90">
-                    <path
-                      d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                      fill="none"
-                      stroke="#e2e8f0"
-                      strokeWidth="3"
-                    />
-                    <path
-                      d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                      fill="none"
-                      stroke={arcColor}
-                      strokeWidth="3"
-                      strokeDasharray={`${continuityScore}, 100`}
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <span className="text-sm font-semibold text-slate-700">{Math.round(continuityScore)}</span>
-                  </div>
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <HeartPulse className="h-4 w-4 text-slate-400" />
-                    <span className="text-sm font-medium text-slate-700">Continuity Health</span>
-                  </div>
-                  <Badge variant="outline" className={`mt-1 text-xs ${stateStyle.bg} ${stateStyle.text}`}>
-                    {stateStyle.label}
-                  </Badge>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+      {/* Continuity state — ambient, not numeric */}
+      <div className={`rounded-lg px-5 py-4 ${stateMeta.bg} border border-transparent`}>
+        <div className="flex items-center justify-between">
+          <div>
+            <p className={`text-sm font-medium ${stateMeta.color}`}>{stateMeta.label}</p>
+            <p className="text-xs text-slate-500 mt-0.5">{stateMeta.description}</p>
+          </div>
+          <div className="flex items-center gap-4 text-xs text-slate-400">
+            {activeThreads.length > 0 && (
+              <span>{activeThreads.length} active {activeThreads.length === 1 ? 'thread' : 'threads'}</span>
+            )}
+            {unresolvedCount > 0 && (
+              <span className="text-amber-500">{unresolvedCount} unresolved</span>
+            )}
+            {cognitiveLoad !== null && cognitiveLoad > 0.5 && (
+              <span className="text-orange-500">Load elevated</span>
+            )}
+          </div>
+        </div>
+      </div>
 
-          {/* Cognitive Load */}
-          <Card>
-            <CardContent className="pt-5 pb-5">
-              <div className="flex items-center gap-2 mb-3">
-                <Activity className="h-4 w-4 text-slate-400" />
-                <span className="text-sm font-medium text-slate-700">Cognitive Load</span>
+      {/* Surfaced items — with deterministic "why this appeared" */}
+      {surfacedItems.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">Needs attention</p>
+          {surfacedItems.map(item => {
+            const isExpanded = expandedReasons.has(item.id)
+            const iconColor = item.severity === 'high' ? 'text-red-400' : item.severity === 'medium' ? 'text-amber-400' : 'text-slate-400'
+            const bgColor = item.severity === 'high' ? 'bg-red-50/50' : item.severity === 'medium' ? 'bg-amber-50/50' : 'bg-slate-50/50'
+
+            return (
+              <div key={item.id} className={`rounded-lg ${bgColor}`}>
+                <div className="flex items-center gap-3 px-4 py-3 text-sm">
+                  {item.type === 'thread_time_sensitive' ? (
+                    <Timer className={`h-4 w-4 ${iconColor} flex-shrink-0`} />
+                  ) : (
+                    <AlertCircle className={`h-4 w-4 ${iconColor} flex-shrink-0`} />
+                  )}
+                  <Link href={item.link} className="flex-1 text-slate-600 hover:text-slate-800 transition-colors">
+                    {item.title}
+                  </Link>
+                  {/* "Why this appeared" toggle */}
+                  <button
+                    onClick={() => toggleReasons(item.id)}
+                    className="text-slate-300 hover:text-slate-500 transition-colors p-1"
+                    title="Why am I seeing this?"
+                  >
+                    <Info className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                {/* Deterministic explainability — reasons panel */}
+                {isExpanded && (
+                  <div className="px-4 pb-3 pt-0">
+                    <div className="pl-7 border-l-2 border-slate-200 space-y-1">
+                      <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider mb-1">Why this appeared</p>
+                      {item.reasons.map((reason, i) => (
+                        <p key={i} className="text-[11px] text-slate-400">{reason}</p>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
-              <div className="w-full bg-slate-100 rounded-full h-3">
-                <div
-                  className="h-3 rounded-full transition-all duration-500"
-                  style={{
-                    width: `${(cognitiveLoad ?? 0) * 100}%`,
-                    background: cognitiveLoad !== null
-                      ? cognitiveLoad > 0.7
-                        ? '#ef4444'
-                        : cognitiveLoad > 0.5
-                          ? '#f97316'
-                          : cognitiveLoad > 0.3
-                            ? '#f59e0b'
-                            : '#10b981'
-                      : '#e2e8f0',
-                  }}
-                />
-              </div>
-              <p className="text-xs text-slate-400 mt-2">
-                {cognitiveLoad !== null
-                  ? cognitiveLoad > 0.7
-                    ? 'High — consider focusing on fewer threads'
-                    : cognitiveLoad > 0.5
-                      ? 'Elevated — approaching capacity'
-                      : cognitiveLoad > 0.3
-                        ? 'Moderate — manageable load'
-                        : 'Low — capacity available'
-                  : 'Measuring...'}
-              </p>
-            </CardContent>
-          </Card>
+            )
+          })}
         </div>
       )}
 
-      {/* Daily Brief */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <Sun className="h-4 w-4 text-amber-500" />
-            Daily Continuity Brief
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {briefLoading ? (
-            <div className="space-y-2">
-              <div className="h-4 bg-slate-100 rounded animate-pulse w-3/4" />
-              <div className="h-4 bg-slate-100 rounded animate-pulse w-1/2" />
-              <div className="h-4 bg-slate-100 rounded animate-pulse w-2/3" />
-            </div>
-          ) : brief ? (
-            <div className="prose prose-sm prose-slate max-w-none text-sm leading-relaxed">
-              {brief.split('\n').map((line, i) => {
-                if (line.startsWith('# ')) return <h3 key={i} className="text-base font-semibold mt-3 mb-1">{line.slice(2)}</h3>
-                if (line.startsWith('## ')) return <h4 key={i} className="text-sm font-semibold mt-2 mb-1">{line.slice(3)}</h4>
-                if (line.startsWith('- ')) return <li key={i} className="ml-4 text-slate-600">{line.slice(2)}</li>
-                if (line.trim() === '') return <br key={i} />
-                return <p key={i} className="text-slate-600 mb-1">{line}</p>
-              })}
-            </div>
-          ) : (
-            <p className="text-sm text-slate-400">
-              Start capturing memories to receive your daily brief.
-            </p>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Interrupted Threads */}
-      {threads.length > 0 && (
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base flex items-center gap-2">
-              <GitBranch className="h-4 w-4 text-violet-500" />
-              Interrupted Threads
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {threads.map(thread => (
-              <div key={thread.id} className="flex items-start gap-2 p-2.5 rounded bg-violet-50/50 text-sm">
-                <div className="flex-1 min-w-0">
-                  <p className="text-slate-700 font-medium truncate">{thread.title}</p>
-                  {thread.thread_summary && (
-                    <p className="text-slate-500 text-xs mt-0.5 line-clamp-2">{thread.thread_summary}</p>
-                  )}
-                  <p className="text-xs text-slate-400 mt-1">
-                    Retention: {Math.round(thread.continuity_retention * 100)}%
-                  </p>
-                </div>
-                <div className="flex gap-1 flex-shrink-0">
-                  <button
-                    onClick={() => handleThreadAction(thread.id, 'resolved')}
-                    className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-emerald-600 transition-colors"
-                    title="Mark resolved"
-                  >
-                    <RotateCcw className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    onClick={() => handleThreadAction(thread.id, 'dismissed')}
-                    className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-red-500 transition-colors"
-                    title="Dismiss"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              </div>
-            ))}
-            <div className="pt-1">
-              <Link href="/continuity">
-                <Button variant="ghost" size="sm" className="text-xs text-slate-400">
-                  View continuity details
-                  <ArrowRight className="h-3 w-3 ml-1" />
-                </Button>
-              </Link>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Overdue / Due Today */}
-      {(overdue.length > 0 || dueToday.length > 0) && (
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base flex items-center gap-2">
-              <Handshake className="h-4 w-4 text-blue-500" />
-              Commitments
-              {overdue.length > 0 && (
-                <Badge variant="outline" className="bg-red-50 text-red-600 border-red-200 text-xs">
-                  {overdue.length} may need attention
-                </Badge>
-              )}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {overdue.map(c => (
-              <div key={c.id} className="flex items-center gap-2 p-2 rounded bg-red-50/50 text-sm">
-                <AlertCircle className="h-4 w-4 text-red-400 flex-shrink-0" />
-                <span className="flex-1 text-slate-700">{c.description}</span>
-                {c.due_date && (
-                  <span className="text-xs text-red-400">
-                    was due {format(new Date(c.due_date), 'MMM d')}
-                  </span>
-                )}
-              </div>
-            ))}
-            {dueToday.map(c => (
-              <div key={c.id} className="flex items-center gap-2 p-2 rounded bg-amber-50/50 text-sm">
-                {c.direction === 'outgoing' ? (
-                  <ArrowUpRight className="h-4 w-4 text-blue-500 flex-shrink-0" />
-                ) : (
-                  <ArrowDownLeft className="h-4 w-4 text-green-500 flex-shrink-0" />
-                )}
-                <span className="flex-1 text-slate-700">{c.description}</span>
-                <Badge variant="outline" className="text-xs">due today</Badge>
-              </div>
-            ))}
-            <div className="pt-1">
-              <Link href="/commitments">
-                <Button variant="ghost" size="sm" className="text-xs text-slate-400">
-                  View all commitments
-                  <ArrowRight className="h-3 w-3 ml-1" />
-                </Button>
-              </Link>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Priority Tasks */}
-      {urgentTasks.length > 0 && (
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base flex items-center gap-2">
-              <ListTodo className="h-4 w-4 text-purple-500" />
-              Priority items
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {urgentTasks.map(task => (
-              <div key={task.id} className="flex items-center justify-between p-2 rounded bg-slate-50 text-sm">
-                <span className="text-slate-700">{task.title}</span>
-                <div className="flex items-center gap-2">
-                  {task.due_date && (
-                    <span className="text-xs text-slate-400 flex items-center gap-1">
-                      <Calendar className="h-3 w-3" />
-                      {format(new Date(task.due_date), 'MMM d')}
-                    </span>
-                  )}
-                  <Badge
-                    variant="outline"
-                    className={`text-xs ${task.priority === 'urgent' ? 'bg-red-50 text-red-600 border-red-200' : 'bg-orange-50 text-orange-600 border-orange-200'}`}
-                  >
-                    {task.priority}
-                  </Badge>
-                </div>
-              </div>
-            ))}
-            <div className="pt-1">
-              <Link href="/commitments">
-                <Button variant="ghost" size="sm" className="text-xs text-slate-400">
-                  View all
-                  <ArrowRight className="h-3 w-3 ml-1" />
-                </Button>
-              </Link>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Empty state when nothing is due */}
-      {!dataLoading && overdue.length === 0 && dueToday.length === 0 && urgentTasks.length === 0 && threads.length === 0 && (
-        <Card>
-          <CardContent className="py-8 text-center">
-            <p className="text-slate-400 text-sm">
-              Nothing pressing today. A good day to capture thoughts and reflect.
-            </p>
-            <Link href="/capture">
-              <Button variant="outline" size="sm" className="mt-3">
-                Capture something
-              </Button>
+      {/* Active threads — calm, spatial layout */}
+      {activeThreads.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">Active threads</p>
+            <Link href="/continuity/threads">
+              <span className="text-xs text-slate-400 hover:text-slate-500 cursor-pointer flex items-center gap-1">
+                All threads <ChevronRight className="h-3 w-3" />
+              </span>
             </Link>
-          </CardContent>
-        </Card>
+          </div>
+          <div className="space-y-2">
+            {activeThreads.slice(0, 5).map(thread => {
+              const borderColor = THREAD_TYPE_COLORS[thread.thread_type] || THREAD_TYPE_COLORS.general
+
+              return (
+                <Link key={thread.id} href={`/continuity/threads/${thread.id}`}>
+                  <div className={`border-l-[3px] ${borderColor} px-4 py-3 rounded-r-lg bg-white hover:bg-slate-50/50 transition-colors cursor-pointer`}>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <h3 className="text-sm text-slate-700 truncate">{thread.title}</h3>
+                        {thread.status !== 'active' && (
+                          <Badge variant="outline" className="text-[10px] py-0 border-0 bg-slate-50 text-slate-400">
+                            {thread.status.replace('_', ' ')}
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3 flex-shrink-0">
+                        {/* Person initials */}
+                        {thread.people && thread.people.length > 0 && (
+                          <div className="flex items-center -space-x-1">
+                            {thread.people.slice(0, 2).map((p, i) => (
+                              <div
+                                key={i}
+                                className="w-5 h-5 rounded-full bg-slate-200 flex items-center justify-center text-[9px] font-medium text-slate-500 ring-1 ring-white"
+                                title={p.name}
+                              >
+                                {p.name[0]}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        <span className="text-[11px] text-slate-300">
+                          {formatDistanceToNow(new Date(thread.last_activity_at), { addSuffix: true })}
+                        </span>
+                      </div>
+                    </div>
+                    {/* Commitment indicator */}
+                    {thread.commitment_count > 0 && (
+                      <div className="flex items-center gap-1 mt-1.5 text-[11px] text-slate-400">
+                        <Handshake className="h-3 w-3" />
+                        {thread.commitment_count} {thread.commitment_count === 1 ? 'commitment' : 'commitments'}
+                      </div>
+                    )}
+                  </div>
+                </Link>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* People — ambient follow-up signals with deterministic reasons */}
+      {peopleNeedingFollowUp.length > 0 && (
+        <div>
+          <p className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-3">People</p>
+          <div className="flex gap-4">
+            {peopleNeedingFollowUp.map(person => (
+              <Link key={person.id} href={`/people/${person.id}`}>
+                <div className="flex flex-col items-center cursor-pointer group" title={`Last mentioned ${person.days_since} days ago`}>
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium transition-transform group-hover:scale-105 ${
+                    person.days_since > 14 ? 'bg-red-50 text-red-500' :
+                    person.days_since > 7 ? 'bg-amber-50 text-amber-500' :
+                    'bg-slate-100 text-slate-500'
+                  }`}>
+                    {person.name[0]}
+                  </div>
+                  <span className="text-[11px] text-slate-500 mt-1.5">{person.name.split(' ')[0]}</span>
+                  <span className={`text-[10px] ${
+                    person.days_since > 14 ? 'text-red-400' :
+                    person.days_since > 7 ? 'text-amber-400' :
+                    'text-slate-300'
+                  }`}>
+                    {person.days_since}d ago
+                  </span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Clear state */}
+      {activeThreads.length === 0 && surfacedItems.length === 0 && (
+        <div className="text-center py-12">
+          <CheckCircle2 className="h-6 w-6 text-emerald-300 mx-auto mb-3" />
+          <p className="text-sm text-slate-500">Your threads are clear. Continuity is stable.</p>
+          <Link href="/capture">
+            <Button variant="ghost" size="sm" className="mt-3 text-xs text-slate-400">
+              Capture a thought
+            </Button>
+          </Link>
+        </div>
       )}
     </div>
   )

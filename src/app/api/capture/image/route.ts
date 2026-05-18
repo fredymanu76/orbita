@@ -1,5 +1,6 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { processMemory } from '@/lib/pipeline/process-memory'
 
 export async function POST(request: Request) {
   const supabase = await createClient()
@@ -32,14 +33,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  if (caption && caption.trim().length > 0) {
-    const origin = new URL(request.url).origin
-    fetch(`${origin}/api/memories/process`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ memoryId: data.id }),
-    }).catch(() => {})
-  }
+  // Process memory after response is sent (always process, even images without captions)
+  after(async () => {
+    try {
+      await processMemory(data.id)
+    } catch (err) {
+      console.error('Background processing failed for memory:', data.id, err)
+    }
+  })
 
   return NextResponse.json({ memory: data }, { status: 201 })
 }

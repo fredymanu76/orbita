@@ -1,10 +1,40 @@
-import { getOpenAIClient } from './openai'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { format, startOfToday, subDays } from 'date-fns'
-import { getInterruptedThreads } from '@/lib/cognition/interruption-engine'
-import { getPendingFollowUps } from '@/lib/cognition/follow-up-detection'
 import { calculateContinuityScore } from '@/lib/cognition/continuity-scoring'
-import { generateRecoveryNudge } from '@/lib/cognition/recovery-prompts'
+
+/**
+ * Generate a structured daily brief — deterministic, not GPT prose.
+ * Returns structured data that the UI renders directly.
+ */
+export interface StructuredBrief {
+  continuity_state: string
+  active_thread_count: number
+  unresolved_thread_count: number
+  overdue_commitments: {
+    description: string
+    person_name: string | null
+    due_date: string
+    days_overdue: number
+  }[]
+  due_today: {
+    description: string
+    person_name: string | null
+  }[]
+  threads_needing_attention: {
+    id: string
+    title: string
+    status: string
+    thread_type: string
+    retention: number
+    commitment_count: number
+    last_activity_days: number
+  }[]
+  people_mentioned_recently: string[]
+  follow_ups_due: {
+    description: string
+    overdue: boolean
+  }[]
+}
 
 export async function generateDailyBrief(userId: string): Promise<string> {
   const supabase = createAdminClient()
@@ -21,9 +51,35 @@ export async function generateDailyBrief(userId: string): Promise<string> {
 
   if (existing) return existing.content
 
-  // Gather data for the brief
-  const [commitmentsRes, tasksRes, recentMemoriesRes, remindersRes] = await Promise.all([
-    // Due or overdue commitments
+  // Generate structured brief
+  const brief = await generateStructuredBrief(userId, todayStr)
+
+  // Render to markdown — deterministic, no GPT
+  const markdown = renderBriefMarkdown(brief, today)
+
+  // Cache
+  await supabase.from('daily_briefs').upsert({
+    user_id: userId,
+    brief_date: todayStr,
+    content: markdown,
+    commitments_due: brief.overdue_commitments,
+  })
+
+  return markdown
+}
+
+export async function generateStructuredBrief(userId: string, todayStr: string): Promise<StructuredBrief> {
+  const supabase = createAdminClient()
+  const today = new Date(todayStr)
+  const now = new Date()
+
+  const [
+    commitmentsRes,
+    threadsRes,
+    followUpsRes,
+    recentPeopleRes,
+    continuityRes,
+  ] = await Promise.all([
     supabase
       .from('commitments')
       .select('*, people(name)')
@@ -32,140 +88,127 @@ export async function generateDailyBrief(userId: string): Promise<string> {
       .lte('due_date', todayStr)
       .order('due_date', { ascending: true }),
 
-    // Pending tasks
     supabase
-      .from('tasks')
-      .select('*')
+      .from('threads')
+      .select('id, title, status, thread_type, continuity_retention, commitment_count, last_activity_at')
       .eq('user_id', userId)
-      .in('status', ['pending', 'in_progress'])
-      .order('priority', { ascending: true })
-      .limit(10),
+      .not('status', 'in', '("completed","paused")'),
 
-    // Recent memories (last 2 days)
     supabase
-      .from('memory_items')
-      .select('summary, raw_content, created_at')
-      .eq('user_id', userId)
-      .eq('processed', true)
-      .gte('created_at', subDays(today, 2).toISOString())
-      .order('created_at', { ascending: false })
-      .limit(10),
-
-    // Pending reminders
-    supabase
-      .from('reminders')
-      .select('message, remind_at')
+      .from('follow_up_candidates')
+      .select('description, follow_up_due_at, status')
       .eq('user_id', userId)
       .eq('status', 'pending')
-      .lte('remind_at', new Date().toISOString())
       .limit(5),
+
+    supabase
+      .from('people')
+      .select('name')
+      .eq('user_id', userId)
+      .gte('last_mentioned_at', subDays(today, 7).toISOString())
+      .order('last_mentioned_at', { ascending: false })
+      .limit(5),
+
+    calculateContinuityScore(userId).catch(() => ({ score: 0, state: 'stable' as const })),
   ])
 
   const commitments = commitmentsRes.data || []
-  const tasks = tasksRes.data || []
-  const recentMemories = recentMemoriesRes.data || []
-  const reminders = remindersRes.data || []
+  const threads = threadsRes.data || []
+  const followUps = followUpsRes.data || []
+  const recentPeople = recentPeopleRes.data || []
 
-  // Gather continuity intelligence
-  let interruptedThreadsContext = ''
-  let followUpsContext = ''
-  let continuityContext = ''
+  const overdue = commitments
+    .filter(c => c.due_date && c.due_date < todayStr)
+    .map(c => ({
+      description: c.description,
+      person_name: (c.people as unknown as { name: string } | null)?.name || null,
+      due_date: c.due_date,
+      days_overdue: Math.floor((now.getTime() - new Date(c.due_date).getTime()) / 86400000),
+    }))
 
-  try {
-    const [threads, followUps, continuity] = await Promise.all([
-      getInterruptedThreads(userId, 3),
-      getPendingFollowUps(userId, 3),
-      calculateContinuityScore(userId),
-    ])
+  const dueToday = commitments
+    .filter(c => c.due_date === todayStr)
+    .map(c => ({
+      description: c.description,
+      person_name: (c.people as unknown as { name: string } | null)?.name || null,
+    }))
 
-    if (threads.length > 0) {
-      // Get people for each thread
-      const threadNudges = await Promise.all(
-        threads.map(async (t) => {
-          const { data: memPeople } = await supabase
-            .from('memory_people')
-            .select('people(name)')
-            .eq('memory_id', t.originating_memory_id || '')
-          const names = (memPeople || []).map(mp => (mp.people as unknown as { name: string })?.name).filter(Boolean)
-          return generateRecoveryNudge(t.title, t.continuity_retention, names)
-        })
-      )
-      interruptedThreadsContext = `Interrupted threads:\n${threadNudges.map(n => `- ${n}`).join('\n')}`
+  const threadsNeedingAttention = threads
+    .filter(t => ['unresolved', 'forgotten_risk', 'time_sensitive'].includes(t.status) || t.continuity_retention < 0.5)
+    .map(t => ({
+      id: t.id,
+      title: t.title,
+      status: t.status,
+      thread_type: t.thread_type,
+      retention: t.continuity_retention,
+      commitment_count: t.commitment_count,
+      last_activity_days: Math.floor((now.getTime() - new Date(t.last_activity_at).getTime()) / 86400000),
+    }))
+    .slice(0, 5)
+
+  const followUpsDue = followUps.map(f => ({
+    description: f.description,
+    overdue: f.follow_up_due_at ? new Date(f.follow_up_due_at) < now : false,
+  }))
+
+  return {
+    continuity_state: continuityRes.state,
+    active_thread_count: threads.filter(t => t.status === 'active').length,
+    unresolved_thread_count: threads.filter(t => ['unresolved', 'forgotten_risk', 'time_sensitive'].includes(t.status)).length,
+    overdue_commitments: overdue,
+    due_today: dueToday,
+    threads_needing_attention: threadsNeedingAttention,
+    people_mentioned_recently: recentPeople.map(p => p.name),
+    follow_ups_due: followUpsDue,
+  }
+}
+
+function renderBriefMarkdown(brief: StructuredBrief, today: Date): string {
+  const parts: string[] = []
+
+  // State summary
+  parts.push(`## ${format(today, 'EEEE, MMMM d')}`)
+  parts.push(`**${brief.continuity_state.replace(/_/g, ' ')}** — ${brief.active_thread_count} active threads${brief.unresolved_thread_count > 0 ? `, ${brief.unresolved_thread_count} unresolved` : ''}`)
+
+  // Overdue
+  if (brief.overdue_commitments.length > 0) {
+    parts.push('\n### Overdue')
+    for (const c of brief.overdue_commitments) {
+      parts.push(`- ${c.description}${c.person_name ? ` (${c.person_name})` : ''} — ${c.days_overdue}d overdue`)
     }
-
-    if (followUps.length > 0) {
-      followUpsContext = `Follow-up nudges:\n${followUps.map(f => `- ${f.description} (${f.status === 'pending' && f.follow_up_due_at && new Date(f.follow_up_due_at) < new Date() ? 'overdue' : 'upcoming'})`).join('\n')}`
-    }
-
-    continuityContext = `Continuity health: ${continuity.score.toFixed(0)}/100 (${continuity.state.replace(/_/g, ' ')})`
-  } catch (error) {
-    console.error('Continuity data for brief (non-fatal):', error)
   }
 
-  // Build context
-  const context = [
-    commitments.length > 0
-      ? `Due commitments:\n${commitments.map(c => `- ${c.description}${c.people ? ` (with ${(c.people as { name: string }).name})` : ''}${c.due_date ? ` — due ${c.due_date}` : ''}`).join('\n')}`
-      : 'No commitments due.',
+  // Due today
+  if (brief.due_today.length > 0) {
+    parts.push('\n### Due today')
+    for (const c of brief.due_today) {
+      parts.push(`- ${c.description}${c.person_name ? ` (${c.person_name})` : ''}`)
+    }
+  }
 
-    tasks.length > 0
-      ? `Pending tasks:\n${tasks.map(t => `- [${t.priority}] ${t.title}${t.due_date ? ` — due ${t.due_date}` : ''}`).join('\n')}`
-      : 'No pending tasks.',
+  // Threads needing attention
+  if (brief.threads_needing_attention.length > 0) {
+    parts.push('\n### Threads needing attention')
+    for (const t of brief.threads_needing_attention) {
+      const retention = `${Math.round(t.retention * 100)}% retained`
+      const activity = t.last_activity_days > 0 ? `${t.last_activity_days}d since activity` : 'active today'
+      parts.push(`- **${t.title}** — ${t.status.replace('_', ' ')}, ${retention}, ${activity}`)
+    }
+  }
 
-    recentMemories.length > 0
-      ? `Recent memories:\n${recentMemories.map(m => `- ${m.summary || m.raw_content?.substring(0, 100)}`).join('\n')}`
-      : 'No recent memories captured.',
+  // Follow-ups
+  if (brief.follow_ups_due.length > 0) {
+    parts.push('\n### Follow-ups')
+    for (const f of brief.follow_ups_due) {
+      parts.push(`- ${f.description}${f.overdue ? ' (overdue)' : ''}`)
+    }
+  }
 
-    reminders.length > 0
-      ? `Reminders:\n${reminders.map(r => `- ${r.message}`).join('\n')}`
-      : '',
+  // Clear state
+  if (brief.overdue_commitments.length === 0 && brief.due_today.length === 0 &&
+      brief.threads_needing_attention.length === 0 && brief.follow_ups_due.length === 0) {
+    parts.push('\nYour threads are clear. Continuity is stable.')
+  }
 
-    interruptedThreadsContext,
-    followUpsContext,
-    continuityContext,
-  ].filter(Boolean).join('\n\n')
-
-  // Generate brief with GPT-4o-mini
-  const openai = getOpenAIClient()
-  const completion = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
-    messages: [
-      {
-        role: 'system',
-        content: `You are a warm, supportive daily briefing assistant for a cognitive continuity tool. Generate a brief daily summary that helps the user restore their continuity — reconnecting with where they left off, what needs attention, and what may have been forgotten. Your tone should be calm, gentle, and professional — never clinical.
-
-Guidelines:
-- Start with a gentle greeting
-- If there are interrupted threads, weave them naturally into the brief ("You were discussing..." or "A thread with Sarah appears paused...")
-- Highlight commitments that need attention (use "You may want to revisit..." not "You forgot...")
-- Include follow-up nudges if any are due or overdue
-- Mention the continuity health state if it's below "stable"
-- List key tasks in priority order
-- Keep it concise — 200-300 words
-- Use markdown formatting (headers, bullets)
-- If there's nothing pressing, acknowledge that warmly
-- Never use the words: tasks, todos, productivity, execution, efficiency
-
-Today's date: ${format(today, 'EEEE, MMMM d, yyyy')}`,
-      },
-      {
-        role: 'user',
-        content: context,
-      },
-    ],
-    temperature: 0.4,
-    max_tokens: 600,
-  })
-
-  const brief = completion.choices[0].message.content || 'No brief available for today.'
-
-  // Cache the brief
-  await supabase.from('daily_briefs').upsert({
-    user_id: userId,
-    brief_date: todayStr,
-    content: brief,
-    commitments_due: commitments,
-  })
-
-  return brief
+  return parts.join('\n')
 }

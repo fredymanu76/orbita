@@ -129,19 +129,22 @@ export async function applyDecayBatch(
 
 /**
  * Run all decay operations for a user. Called by daily cron.
+ * Covers: threads (primary), interrupted_threads (legacy), follow_ups, memories.
  */
 export async function runDailyDecay(userId: string): Promise<{
   threadsDecayed: number
+  legacyThreadsDecayed: number
   followUpsDecayed: number
   memoriesDecayed: number
 }> {
-  const [threadsDecayed, followUpsDecayed, memoriesDecayed] = await Promise.all([
+  const [threadsDecayed, legacyThreadsDecayed, followUpsDecayed, memoriesDecayed] = await Promise.all([
+    applyDecayBatch('threads', userId, 'status', ['active', 'unresolved', 'paused', 'time_sensitive', 'forgotten_risk']),
     applyDecayBatch('interrupted_threads', userId, 'status', ['interrupted']),
     applyDecayBatch('follow_up_candidates', userId, 'status', ['pending']),
     applyDecayMemories(userId),
   ])
 
-  return { threadsDecayed, followUpsDecayed, memoriesDecayed }
+  return { threadsDecayed, legacyThreadsDecayed, followUpsDecayed, memoriesDecayed }
 }
 
 /**

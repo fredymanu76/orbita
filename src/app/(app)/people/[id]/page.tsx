@@ -3,11 +3,8 @@
 import { useEffect, useState } from 'react'
 import { use } from 'react'
 import { useRouter } from 'next/navigation'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { Separator } from '@/components/ui/separator'
 import {
   ArrowLeft,
   Brain,
@@ -15,8 +12,11 @@ import {
   ArrowUpRight,
   ArrowDownLeft,
   Calendar,
+  GitBranch,
+  Clock,
+  Heart,
 } from 'lucide-react'
-import { formatDistanceToNow, format } from 'date-fns'
+import { formatDistanceToNow, format, parseISO } from 'date-fns'
 import Link from 'next/link'
 import type { Person, Commitment } from '@/lib/types'
 
@@ -27,6 +27,22 @@ interface MemorySummary {
   summary: string | null
   created_at: string
   importance: number | null
+  emotional_tone: string | null
+}
+
+interface PersonThread {
+  id: string
+  title: string
+  thread_type: string
+  status: string
+  continuity_retention: number
+  last_activity_at: string
+  commitment_count: number
+}
+
+interface EmotionalContext {
+  dominant_tone: string | null
+  recent_tones: string[]
 }
 
 export default function PersonDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -34,6 +50,8 @@ export default function PersonDetailPage({ params }: { params: Promise<{ id: str
   const [person, setPerson] = useState<Person | null>(null)
   const [memories, setMemories] = useState<MemorySummary[]>([])
   const [commitments, setCommitments] = useState<Commitment[]>([])
+  const [threads, setThreads] = useState<PersonThread[]>([])
+  const [emotionalContext, setEmotionalContext] = useState<EmotionalContext>({ dominant_tone: null, recent_tones: [] })
   const [loading, setLoading] = useState(true)
   const router = useRouter()
 
@@ -49,6 +67,22 @@ export default function PersonDetailPage({ params }: { params: Promise<{ id: str
         setPerson(data.person)
         setMemories(data.memories || [])
         setCommitments(data.commitments || [])
+
+        // Fetch threads this person appears in
+        const threadsRes = await fetch(`/api/threads?person_id=${id}`)
+        if (threadsRes.ok) {
+          const threadsData = await threadsRes.json()
+          setThreads(threadsData.threads || [])
+        }
+
+        // Compute emotional context from memories
+        const tones: string[] = (data.memories || [])
+          .map((m: MemorySummary) => m.emotional_tone)
+          .filter((t: string | null): t is string => t !== null && t !== 'neutral')
+        setEmotionalContext({
+          dominant_tone: tones.length > 0 ? mode(tones) : null,
+          recent_tones: Array.from(new Set(tones.slice(0, 5))),
+        })
       } catch {
         router.push('/people')
       } finally {
@@ -60,110 +94,171 @@ export default function PersonDetailPage({ params }: { params: Promise<{ id: str
 
   if (loading || !person) {
     return (
-      <div className="max-w-2xl mx-auto">
-        <div className="h-64 bg-slate-100 rounded-lg animate-pulse" />
+      <div className="max-w-3xl mx-auto space-y-6 px-1">
+        <div className="h-7 bg-slate-100/60 rounded w-48 animate-pulse" />
+        <div className="h-32 bg-slate-50/60 rounded-lg animate-pulse" />
       </div>
     )
   }
 
-  const initials = person.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
+  const daysSinceContact = person.last_mentioned_at
+    ? Math.floor((Date.now() - new Date(person.last_mentioned_at).getTime()) / 86400000)
+    : null
+
+  const activeCommitments = commitments.filter(c => c.status === 'active')
+  const overdueCommitments = commitments.filter(c => c.status === 'active' && c.due_date && c.due_date < format(new Date(), 'yyyy-MM-dd'))
 
   return (
-    <div className="max-w-2xl mx-auto">
-      <Button variant="ghost" size="sm" onClick={() => router.back()} className="mb-4">
-        <ArrowLeft className="h-4 w-4 mr-1.5" />
-        Back
-      </Button>
+    <div className="max-w-3xl mx-auto space-y-8 px-1">
+      {/* Back */}
+      <button onClick={() => router.back()} className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-500">
+        <ArrowLeft className="h-3 w-3" /> Back
+      </button>
 
-      <Card className="mb-6">
-        <CardContent className="pt-6">
-          <div className="flex items-center gap-4">
-            <Avatar className="h-16 w-16">
-              <AvatarFallback className="bg-blue-100 text-blue-600 text-lg font-medium">
-                {initials}
-              </AvatarFallback>
-            </Avatar>
-            <div>
-              <h1 className="text-xl font-semibold text-slate-800">{person.name}</h1>
-              <div className="flex items-center gap-2 mt-1">
-                {person.relationship && (
-                  <Badge variant="outline">{person.relationship}</Badge>
-                )}
-                <span className="text-sm text-slate-400">
-                  {person.mention_count} mention{person.mention_count !== 1 ? 's' : ''}
-                </span>
-              </div>
-              {person.context && (
-                <p className="text-sm text-slate-500 mt-1">{person.context}</p>
-              )}
-            </div>
+      {/* Person header — ambient, not card-heavy */}
+      <div className="flex items-center gap-4">
+        <div className={`w-14 h-14 rounded-full flex items-center justify-center text-lg font-medium ${
+          daysSinceContact !== null && daysSinceContact > 14 ? 'bg-red-50 text-red-500' :
+          daysSinceContact !== null && daysSinceContact > 7 ? 'bg-amber-50 text-amber-500' :
+          'bg-blue-50 text-blue-500'
+        }`}>
+          {person.name[0]}
+        </div>
+        <div>
+          <h1 className="text-xl font-semibold text-slate-800">{person.name}</h1>
+          <div className="flex items-center gap-3 mt-1 text-xs text-slate-400">
+            {person.relationship && <span>{person.relationship}</span>}
+            <span>{person.mention_count} mentions</span>
+            {daysSinceContact !== null && (
+              <span className={daysSinceContact > 14 ? 'text-red-400' : daysSinceContact > 7 ? 'text-amber-400' : ''}>
+                Last {daysSinceContact}d ago
+              </span>
+            )}
           </div>
-        </CardContent>
-      </Card>
+          {person.context && (
+            <p className="text-sm text-slate-500 mt-1">{person.context}</p>
+          )}
+        </div>
+      </div>
 
-      {commitments.length > 0 && (
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <Handshake className="h-4 w-4" />
-              Commitments with {person.name}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {commitments.map((c) => (
-              <div key={c.id} className="flex items-center justify-between p-2 bg-slate-50 rounded text-sm">
-                <div className="flex items-center gap-2">
-                  {c.direction === 'outgoing' ? (
-                    <ArrowUpRight className="h-4 w-4 text-blue-500" />
-                  ) : (
-                    <ArrowDownLeft className="h-4 w-4 text-green-500" />
-                  )}
-                  <span>{c.description}</span>
+      {/* Context reconstruction summary — deterministic */}
+      <div className="rounded-lg bg-slate-50/80 px-5 py-4">
+        <div className="flex items-center justify-between text-xs text-slate-400">
+          <div className="flex items-center gap-6">
+            <span className="flex items-center gap-1"><GitBranch className="h-3 w-3" /> {threads.length} threads</span>
+            <span className="flex items-center gap-1"><Handshake className="h-3 w-3" /> {activeCommitments.length} active commitments</span>
+            {overdueCommitments.length > 0 && (
+              <span className="flex items-center gap-1 text-red-400"><Clock className="h-3 w-3" /> {overdueCommitments.length} overdue</span>
+            )}
+          </div>
+          {emotionalContext.dominant_tone && (
+            <span className="flex items-center gap-1"><Heart className="h-3 w-3" /> {emotionalContext.dominant_tone}</span>
+          )}
+        </div>
+      </div>
+
+      {/* Threads this person appears in */}
+      {threads.length > 0 && (
+        <div>
+          <p className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-3">Threads</p>
+          <div className="space-y-2">
+            {threads.map(thread => (
+              <Link key={thread.id} href={`/continuity/threads/${thread.id}`}>
+                <div className="flex items-center justify-between px-4 py-3 rounded-lg bg-white hover:bg-slate-50/50 transition-colors cursor-pointer">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <GitBranch className="h-3.5 w-3.5 text-slate-300" />
+                    <span className="text-sm text-slate-600 truncate">{thread.title}</span>
+                    <Badge variant="outline" className="text-[10px] py-0 border-0 bg-slate-50 text-slate-400">
+                      {thread.thread_type}
+                    </Badge>
+                  </div>
+                  <div className="flex items-center gap-3 text-[11px] text-slate-300 flex-shrink-0">
+                    <span>{thread.status.replace('_', ' ')}</span>
+                    <span>{Math.round(thread.continuity_retention * 100)}%</span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Commitments */}
+      {commitments.length > 0 && (
+        <div>
+          <p className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-3">Commitments</p>
+          <div className="space-y-1.5">
+            {commitments.map(c => (
+              <div key={c.id} className="flex items-center justify-between px-4 py-2.5 rounded-lg bg-white text-sm">
+                <div className="flex items-center gap-2.5">
+                  {c.direction === 'outgoing' ? (
+                    <ArrowUpRight className="h-3.5 w-3.5 text-blue-400" />
+                  ) : (
+                    <ArrowDownLeft className="h-3.5 w-3.5 text-emerald-400" />
+                  )}
+                  <span className={c.status === 'completed' ? 'text-slate-400 line-through' : 'text-slate-600'}>
+                    {c.description}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
                   {c.due_date && (
-                    <span className="text-xs text-slate-400 flex items-center gap-1">
+                    <span className="text-[11px] text-slate-400 flex items-center gap-1">
                       <Calendar className="h-3 w-3" />
                       {format(new Date(c.due_date), 'MMM d')}
                     </span>
                   )}
-                  <Badge variant="outline" className="text-xs">{c.status}</Badge>
+                  <Badge variant="outline" className={`text-[10px] py-0 border-0 ${
+                    c.status === 'active' ? 'bg-amber-50 text-amber-500' :
+                    c.status === 'completed' ? 'bg-emerald-50 text-emerald-500' :
+                    'bg-slate-50 text-slate-400'
+                  }`}>
+                    {c.status}
+                  </Badge>
                 </div>
               </div>
             ))}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <Brain className="h-4 w-4" />
-            Memories mentioning {person.name}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {memories.length === 0 ? (
-            <p className="text-sm text-slate-400 text-center py-8">No memories found.</p>
-          ) : (
-            <div className="space-y-3">
-              {memories.map((memory) => (
-                <Link key={memory.id} href={`/memories/${memory.id}`}>
-                  <div className="p-3 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer">
-                    <p className="text-sm text-slate-700 line-clamp-2">
-                      {memory.summary || memory.raw_content}
-                    </p>
-                    <p className="text-xs text-slate-400 mt-1">
-                      {formatDistanceToNow(new Date(memory.created_at), { addSuffix: true })}
-                    </p>
+      {/* Memory timeline — chronological context */}
+      <div>
+        <p className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-3">
+          Capture history
+        </p>
+        {memories.length === 0 ? (
+          <p className="text-sm text-slate-300 py-6 text-center">No captures mentioning {person.name}.</p>
+        ) : (
+          <div className="pl-4 border-l border-slate-100 space-y-1">
+            {memories.map(memory => (
+              <div key={memory.id} className="flex items-start gap-2.5 py-2 px-2 rounded-md">
+                <div className="relative -ml-[21px] mt-1.5">
+                  <div className="w-2 h-2 rounded-full bg-slate-200" />
+                </div>
+                <Brain className="h-3.5 w-3.5 mt-0.5 flex-shrink-0 text-slate-300" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-slate-600 line-clamp-2">
+                    {memory.summary || memory.raw_content.substring(0, 150)}
+                  </p>
+                  <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-300">
+                    <span>{format(parseISO(memory.created_at), 'MMM d, h:mm a')}</span>
+                    {memory.emotional_tone && memory.emotional_tone !== 'neutral' && (
+                      <span>{memory.emotional_tone}</span>
+                    )}
                   </div>
-                  <Separator />
-                </Link>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   )
+}
+
+/** Get the most frequent element in an array */
+function mode(arr: string[]): string {
+  const counts: Record<string, number> = {}
+  for (const v of arr) counts[v] = (counts[v] || 0) + 1
+  return Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || arr[0]
 }

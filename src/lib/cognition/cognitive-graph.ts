@@ -3,37 +3,66 @@ import type {
   CognitiveGraphNode,
   CognitiveGraphEdge,
   CognitiveGraphNodeType,
+  GraphNodeStatus,
   ExtractedEntities,
   ContextWindow,
   ContinuityState,
 } from '@/lib/types'
 
+// Promotion thresholds for provisional → confirmed
+const PROMOTION_MENTION_COUNT = 3  // Mentioned at least 3 times
+const PROMOTION_CO_OCCURRENCE = 2  // Co-occurred with confirmed nodes at least 2 times
+
 /**
  * Find or create a cognitive graph node.
+ *
+ * New nodes enter as PROVISIONAL unless:
+ * - They are people with high entity confidence (>= 0.8)
+ * - They are conversations (always confirmed — represents a specific memory)
+ *
+ * Provisional nodes are promoted to confirmed when:
+ * - mention_count >= PROMOTION_MENTION_COUNT
+ * - co_occurrence with confirmed nodes >= PROMOTION_CO_OCCURRENCE
+ * - User explicitly confirms (future feature)
+ *
+ * This prevents low-confidence graph pollution from accumulating over time.
  */
 async function upsertNode(
   userId: string,
   nodeType: CognitiveGraphNodeType,
   label: string,
-  properties: Record<string, unknown> = {}
+  properties: Record<string, unknown> = {},
+  initialStatus: GraphNodeStatus = 'provisional'
 ): Promise<string> {
   const supabase = createAdminClient()
+  const now = new Date().toISOString()
 
   // Try to find existing node
   const { data: existing } = await supabase
     .from('cognitive_graph_nodes')
-    .select('id')
+    .select('id, status, mention_count')
     .eq('user_id', userId)
     .eq('node_type', nodeType)
     .eq('label', label)
     .single()
 
   if (existing) {
+    const newMentionCount = (existing.mention_count || 0) + 1
+    let newStatus = existing.status
+
+    // Auto-promote provisional → confirmed on repeated mentions
+    if (existing.status === 'provisional' && newMentionCount >= PROMOTION_MENTION_COUNT) {
+      newStatus = 'confirmed'
+    }
+
     await supabase
       .from('cognitive_graph_nodes')
       .update({
         properties: { ...properties },
-        updated_at: new Date().toISOString(),
+        mention_count: newMentionCount,
+        last_seen_at: now,
+        status: newStatus,
+        updated_at: now,
       })
       .eq('id', existing.id)
     return existing.id
@@ -46,6 +75,10 @@ async function upsertNode(
       node_type: nodeType,
       label,
       properties,
+      status: initialStatus,
+      mention_count: 1,
+      first_seen_at: now,
+      last_seen_at: now,
     })
     .select('id')
     .single()
@@ -55,6 +88,9 @@ async function upsertNode(
 
 /**
  * Create or update an edge between two nodes.
+ *
+ * Edges involving provisional nodes get lower initial weight.
+ * Edges only form between confirmed nodes at full weight.
  */
 async function upsertEdge(
   userId: string,
@@ -106,6 +142,14 @@ async function upsertEdge(
 /**
  * After entity extraction, create/update nodes for detected entities
  * and connect them with edges.
+ *
+ * Gating rules:
+ * - Conversation nodes: always confirmed (represents specific memory)
+ * - Person nodes from facts: confirmed if entity_confidence >= 0.8, else provisional
+ * - Person nodes from inferences: always provisional
+ * - Commitment nodes: confirmed only if the commitment passed verification
+ * - Emotion nodes: REMOVED — replaced by emotional signals (no graph pollution)
+ * - Goal nodes: provisional until repeated mention
  */
 export async function buildGraphNodes(
   userId: string,
@@ -113,62 +157,66 @@ export async function buildGraphNodes(
   entities: ExtractedEntities
 ): Promise<string[]> {
   const nodeIds: string[] = []
+  const dimConf = entities.dimensional_confidence
 
-  // Create conversation node for this memory
+  // Create conversation node for this memory — always confirmed
   const conversationNodeId = await upsertNode(userId, 'conversation', memoryId, {
     summary: entities.summary,
     emotional_tone: entities.emotional_tone,
-  })
+  }, 'confirmed')
   nodeIds.push(conversationNodeId)
 
-  // Create person nodes
+  // Create person nodes — status depends on source_type and confidence
   for (const person of entities.people) {
+    const status: GraphNodeStatus =
+      person.source_type === 'fact' && dimConf.entity >= 0.8
+        ? 'confirmed'
+        : 'provisional'
+
     const personNodeId = await upsertNode(userId, 'person', person.name, {
       relationship: person.relationship,
       role: person.role,
-    })
+      source_type: person.source_type,
+    }, status)
     nodeIds.push(personNodeId)
   }
 
-  // Create commitment nodes
+  // Create commitment nodes — only for verified commitments (facts with explicit verbs)
   for (const commitment of entities.commitments) {
+    if (commitment.source_type !== 'fact' || !commitment.has_explicit_verb) {
+      continue // Don't pollute graph with unverified commitments
+    }
+
     const commitmentNodeId = await upsertNode(userId, 'commitment', commitment.description, {
       direction: commitment.direction,
       due_date_text: commitment.due_date_text,
-    })
+      source_type: commitment.source_type,
+    }, dimConf.commitment >= 0.7 ? 'confirmed' : 'provisional')
     nodeIds.push(commitmentNodeId)
   }
 
-  // Create emotion node if emotional analysis available
-  if (entities.emotional_analysis) {
-    const emotionNodeId = await upsertNode(
-      userId,
-      'emotion',
-      entities.emotional_analysis.primary_emotion,
-      {
-        intensity: entities.emotional_analysis.intensity,
-        valence: entities.emotional_analysis.valence,
-      }
-    )
-    nodeIds.push(emotionNodeId)
+  // NO emotion nodes — emotional signals are stored separately, not in graph
+  // This prevents phantom emotional entities from polluting the graph
+
+  // Create time period nodes from dates — only with temporal confidence
+  if (dimConf.temporal >= 0.5) {
+    for (const date of entities.dates_mentioned) {
+      const timeNodeId = await upsertNode(userId, 'time_period', date.raw_text, {
+        context: date.context,
+      }, 'provisional')
+      nodeIds.push(timeNodeId)
+    }
   }
 
-  // Create time period nodes from dates
-  for (const date of entities.dates_mentioned) {
-    const timeNodeId = await upsertNode(userId, 'time_period', date.raw_text, {
-      context: date.context,
-    })
-    nodeIds.push(timeNodeId)
-  }
-
-  // Create goal nodes from follow-up intents
+  // Create goal nodes from follow-up intents — only facts with high confidence
   if (entities.follow_up_intents) {
     for (const intent of entities.follow_up_intents) {
-      if (intent.confidence > 0.5) {
+      if (intent.confidence > 0.7 && intent.source_type === 'fact') {
         const goalNodeId = await upsertNode(userId, 'goal', intent.description, {
           expected_timeframe: intent.expected_timeframe,
           confidence: intent.confidence,
-        })
+          source_type: intent.source_type,
+        }, 'provisional')
         nodeIds.push(goalNodeId)
       }
     }
@@ -179,6 +227,10 @@ export async function buildGraphNodes(
 
 /**
  * Connect co-occurring nodes with edges.
+ *
+ * Edges between provisional nodes get reduced weight (0.3x).
+ * Edges between confirmed nodes get full weight.
+ * Mixed edges (provisional-confirmed) get 0.6x weight.
  */
 export async function createEdges(
   userId: string,
@@ -190,7 +242,7 @@ export async function createEdges(
   // Get conversation node
   const { data: convNode } = await supabase
     .from('cognitive_graph_nodes')
-    .select('id')
+    .select('id, status')
     .eq('user_id', userId)
     .eq('node_type', 'conversation')
     .eq('label', memoryId)
@@ -198,38 +250,54 @@ export async function createEdges(
 
   if (!convNode) return
 
+  // Helper: get edge weight based on node statuses
+  const getEdgeWeight = (statusA: string, statusB: string): number => {
+    if (statusA === 'confirmed' && statusB === 'confirmed') return 1.0
+    if (statusA === 'provisional' && statusB === 'provisional') return 0.3
+    return 0.6 // mixed
+  }
+
   // Connect people to conversation
   for (const person of entities.people) {
     const { data: personNode } = await supabase
       .from('cognitive_graph_nodes')
-      .select('id')
+      .select('id, status')
       .eq('user_id', userId)
       .eq('node_type', 'person')
       .eq('label', person.name)
       .single()
 
     if (personNode) {
-      await upsertEdge(userId, personNode.id, convNode.id, 'participated_in')
+      const weight = getEdgeWeight(personNode.status, convNode.status)
+      await upsertEdge(userId, personNode.id, convNode.id, 'participated_in', weight)
+
+      // Check if this co-occurrence should promote the provisional node
+      if (personNode.status === 'provisional') {
+        await checkPromotion(supabase, userId, personNode.id)
+      }
     }
   }
 
-  // Connect commitments to people and conversation
+  // Connect verified commitments to people and conversation
   for (const commitment of entities.commitments) {
+    if (commitment.source_type !== 'fact' || !commitment.has_explicit_verb) continue
+
     const { data: commitNode } = await supabase
       .from('cognitive_graph_nodes')
-      .select('id')
+      .select('id, status')
       .eq('user_id', userId)
       .eq('node_type', 'commitment')
       .eq('label', commitment.description)
       .single()
 
     if (commitNode) {
-      await upsertEdge(userId, commitNode.id, convNode.id, 'originates_from')
+      const weight = getEdgeWeight(commitNode.status, convNode.status)
+      await upsertEdge(userId, commitNode.id, convNode.id, 'originates_from', weight)
 
       if (commitment.person_name) {
         const { data: personNode } = await supabase
           .from('cognitive_graph_nodes')
-          .select('id')
+          .select('id, status')
           .eq('user_id', userId)
           .eq('node_type', 'person')
           .eq('label', commitment.person_name)
@@ -237,89 +305,104 @@ export async function createEdges(
 
         if (personNode) {
           const edgeType = commitment.direction === 'outgoing' ? 'committed_to' : 'received_from'
-          await upsertEdge(userId, commitNode.id, personNode.id, edgeType)
+          const personWeight = getEdgeWeight(commitNode.status, personNode.status)
+          await upsertEdge(userId, commitNode.id, personNode.id, edgeType, personWeight)
         }
       }
     }
   }
 
-  // Connect people to each other when co-occurring
-  for (let i = 0; i < entities.people.length; i++) {
-    for (let j = i + 1; j < entities.people.length; j++) {
+  // Connect people to each other when co-occurring — only fact-classified people
+  const factPeople = entities.people.filter(p => p.source_type === 'fact')
+  for (let i = 0; i < factPeople.length; i++) {
+    for (let j = i + 1; j < factPeople.length; j++) {
       const { data: nodeA } = await supabase
         .from('cognitive_graph_nodes')
-        .select('id')
+        .select('id, status')
         .eq('user_id', userId)
         .eq('node_type', 'person')
-        .eq('label', entities.people[i].name)
+        .eq('label', factPeople[i].name)
         .single()
 
       const { data: nodeB } = await supabase
         .from('cognitive_graph_nodes')
-        .select('id')
+        .select('id, status')
         .eq('user_id', userId)
         .eq('node_type', 'person')
-        .eq('label', entities.people[j].name)
+        .eq('label', factPeople[j].name)
         .single()
 
       if (nodeA && nodeB) {
-        await upsertEdge(userId, nodeA.id, nodeB.id, 'co_occurred')
+        const weight = getEdgeWeight(nodeA.status, nodeB.status)
+        await upsertEdge(userId, nodeA.id, nodeB.id, 'co_occurred', weight)
       }
     }
   }
 
-  // Connect emotion to conversation and people
-  if (entities.emotional_analysis) {
-    const { data: emotionNode } = await supabase
-      .from('cognitive_graph_nodes')
-      .select('id')
-      .eq('user_id', userId)
-      .eq('node_type', 'emotion')
-      .eq('label', entities.emotional_analysis.primary_emotion)
-      .single()
-
-    if (emotionNode) {
-      await upsertEdge(userId, emotionNode.id, convNode.id, 'felt_during')
-
-      for (const person of entities.people) {
-        const { data: personNode } = await supabase
-          .from('cognitive_graph_nodes')
-          .select('id')
-          .eq('user_id', userId)
-          .eq('node_type', 'person')
-          .eq('label', person.name)
-          .single()
-
-        if (personNode) {
-          await upsertEdge(userId, emotionNode.id, personNode.id, 'associated_with')
-        }
-      }
-    }
-  }
-
-  // Connect time periods to commitments
+  // Connect time periods to conversation
   for (const date of entities.dates_mentioned) {
     const { data: timeNode } = await supabase
       .from('cognitive_graph_nodes')
-      .select('id')
+      .select('id, status')
       .eq('user_id', userId)
       .eq('node_type', 'time_period')
       .eq('label', date.raw_text)
       .single()
 
     if (timeNode) {
-      await upsertEdge(userId, timeNode.id, convNode.id, 'referenced_in')
+      const weight = getEdgeWeight(timeNode.status, convNode.status)
+      await upsertEdge(userId, timeNode.id, convNode.id, 'referenced_in', weight)
     }
   }
 }
 
 /**
+ * Check if a provisional node should be promoted based on co-occurrence
+ * with confirmed nodes.
+ */
+async function checkPromotion(
+  supabase: ReturnType<typeof createAdminClient>,
+  userId: string,
+  nodeId: string
+): Promise<void> {
+  // Count edges to confirmed nodes
+  const { data: edges } = await supabase
+    .from('cognitive_graph_edges')
+    .select('source_node_id, target_node_id')
+    .eq('user_id', userId)
+    .or(`source_node_id.eq.${nodeId},target_node_id.eq.${nodeId}`)
+
+  if (!edges || edges.length < PROMOTION_CO_OCCURRENCE) return
+
+  // Check how many neighbors are confirmed
+  const neighborIds = edges.map(e =>
+    e.source_node_id === nodeId ? e.target_node_id : e.source_node_id
+  )
+
+  const { count: confirmedNeighbors } = await supabase
+    .from('cognitive_graph_nodes')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .in('id', neighborIds)
+    .eq('status', 'confirmed')
+
+  if ((confirmedNeighbors || 0) >= PROMOTION_CO_OCCURRENCE) {
+    await supabase
+      .from('cognitive_graph_nodes')
+      .update({ status: 'confirmed', updated_at: new Date().toISOString() })
+      .eq('id', nodeId)
+  }
+}
+
+/**
  * Traverse graph edges to find connected context.
+ * Only traverses through confirmed nodes by default.
  */
 export async function queryGraph(
   userId: string,
   nodeId: string,
-  depth: number = 2
+  depth: number = 2,
+  includeProvisional: boolean = false
 ): Promise<{ nodes: CognitiveGraphNode[]; edges: CognitiveGraphEdge[] }> {
   const supabase = createAdminClient()
   const visitedNodes = new Set<string>()
@@ -351,11 +434,18 @@ export async function queryGraph(
     }
 
     if (nextLayer.length > 0) {
-      const { data: nodes } = await supabase
+      let query = supabase
         .from('cognitive_graph_nodes')
         .select('*')
         .eq('user_id', userId)
         .in('id', nextLayer)
+
+      // Filter out provisional nodes unless explicitly requested
+      if (!includeProvisional) {
+        query = query.eq('status', 'confirmed')
+      }
+
+      const { data: nodes } = await query
 
       if (nodes) allNodes.push(...nodes)
     }
@@ -389,7 +479,7 @@ export async function getContextWindow(userId: string): Promise<ContextWindow> {
     .order('measured_at', { ascending: false })
     .limit(10)
 
-  // Key people (most mentioned recently)
+  // Key people (most mentioned recently) — only confirmed graph nodes
   const { data: people } = await supabase
     .from('people')
     .select('*')
@@ -418,7 +508,7 @@ export async function getContextWindow(userId: string): Promise<ContextWindow> {
   const score = latestSnapshot?.continuity_score ?? 85
   const state: ContinuityState = latestSnapshot?.state ?? 'stable'
 
-  // Determine emotional trajectory
+  // Determine emotional trajectory from signals (not GPT-interpreted readings)
   const emotionList = emotions || []
   const dominantEmotion = emotionList.length > 0 ? emotionList[0].emotion : 'neutral'
   const volatility = emotionList.length > 1
