@@ -40,7 +40,7 @@ export default function RecallPage() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto flex flex-col h-[calc(100vh-10rem)]">
+    <div className="max-w-4xl mx-auto flex flex-col h-[calc(100vh-12rem)] sm:h-[calc(100vh-10rem)]">
       <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-2xl font-semibold text-slate-800">Ask</h1>

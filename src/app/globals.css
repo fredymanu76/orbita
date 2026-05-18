@@ -139,3 +139,37 @@
 .safe-bottom {
   padding-bottom: env(safe-area-inset-bottom);
 }
+
+.safe-top {
+  padding-top: env(safe-area-inset-top);
+}
+
+/* Mobile touch optimisations */
+@media (max-width: 767px) {
+  /* Ensure minimum tap targets */
+  button, a, [role="button"] {
+    min-height: 36px;
+  }
+
+  /* Prevent text selection flash on tap */
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Smooth overscroll */
+  html {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Horizontal scroll containers */
+  .mobile-scroll-x {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .mobile-scroll-x::-webkit-scrollbar {
+    display: none;
+  }
+}

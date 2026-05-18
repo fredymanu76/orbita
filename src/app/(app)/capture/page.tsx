@@ -28,7 +28,7 @@ export default function CapturePage() {
       </div>
 
       {/* Mode selector — visual cards instead of plain tabs */}
-      <div className="grid grid-cols-4 gap-3 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
         {modes.map((mode) => {
           const Icon = mode.icon
           const isActive = activeMode === mode.key
@@ -56,7 +56,7 @@ export default function CapturePage() {
       </div>
 
       {/* Capture area */}
-      <div className="rounded-2xl bg-white/90 border border-slate-100 p-6 shadow-sm">
+      <div className="rounded-2xl bg-white/90 border border-slate-100 p-4 sm:p-6 shadow-sm">
         {activeMode === 'voice' && <VoiceRecorder />}
         {activeMode === 'text' && <TextInput />}
         {activeMode === 'image' && <ImageUpload />}

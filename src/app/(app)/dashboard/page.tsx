@@ -258,7 +258,7 @@ export default function DashboardPage() {
       {peopleNeedingFollowUp.length > 0 && (
         <div>
           <p className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-3">People</p>
-          <div className="flex gap-4">
+          <div className="flex gap-3 mobile-scroll-x pb-1 -mx-1 px-1">
             {peopleNeedingFollowUp.map(person => (
               <RelationshipCard
                 key={person.id}

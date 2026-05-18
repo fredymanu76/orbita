@@ -313,24 +313,24 @@ export default function CompanionPage() {
           {/* Messages */}
           <Card className="overflow-hidden bg-white/80 border-slate-100">
             <CardContent className="p-0">
-              <div className="h-[500px] overflow-y-auto p-4 space-y-4">
+              <div className="h-[calc(100vh-22rem)] sm:h-[500px] overflow-y-auto p-3 sm:p-4 space-y-4">
                 {messages.map((msg, i) => (
                   <div
                     key={i}
                     className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
                   >
                     {msg.role === 'assistant' && (
-                      <div className="flex items-start gap-2.5 max-w-[85%]">
+                      <div className="flex items-start gap-2 sm:gap-2.5 max-w-[90%] sm:max-w-[85%]">
                         <div className="w-7 h-7 rounded-lg bg-violet-50 flex items-center justify-center flex-shrink-0 mt-0.5">
                           <Sparkles className="h-3.5 w-3.5 text-violet-500" />
                         </div>
-                        <div className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                        <div className="rounded-xl bg-slate-50 px-3 py-2.5 sm:px-4 sm:py-3 text-sm text-slate-700">
                           <FormattedMessage content={msg.content} isUser={false} />
                         </div>
                       </div>
                     )}
                     {msg.role === 'user' && (
-                      <div className="max-w-[80%] rounded-xl bg-slate-800 text-white px-4 py-3 text-sm">
+                      <div className="max-w-[85%] sm:max-w-[80%] rounded-xl bg-slate-800 text-white px-3 py-2.5 sm:px-4 sm:py-3 text-sm">
                         <FormattedMessage content={msg.content} isUser={true} />
                       </div>
                     )}

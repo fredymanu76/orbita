@@ -124,26 +124,26 @@ export default function CommitmentsPage() {
       </div>
 
       {/* Overview stat cards */}
-      <div className="grid grid-cols-3 gap-3 mb-6">
-        <div className="rounded-xl bg-blue-50 p-4 flex items-center gap-3">
-          <Activity className="h-5 w-5 text-blue-500" />
-          <div>
-            <p className="text-2xl font-bold text-blue-700">{activeCommitments.length + pendingTasks.length}</p>
-            <p className="text-xs text-blue-500">Active</p>
+      <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-6">
+        <div className="rounded-xl bg-blue-50 p-3 sm:p-4 flex items-center gap-2 sm:gap-3">
+          <Activity className="h-4 w-4 sm:h-5 sm:w-5 text-blue-500 flex-shrink-0" />
+          <div className="min-w-0">
+            <p className="text-xl sm:text-2xl font-bold text-blue-700">{activeCommitments.length + pendingTasks.length}</p>
+            <p className="text-[10px] sm:text-xs text-blue-500">Active</p>
           </div>
         </div>
-        <div className="rounded-xl bg-red-50 p-4 flex items-center gap-3">
-          <AlertTriangle className="h-5 w-5 text-red-500" />
-          <div>
-            <p className="text-2xl font-bold text-red-700">{overdueCommitments.length}</p>
-            <p className="text-xs text-red-500">Overdue</p>
+        <div className="rounded-xl bg-red-50 p-3 sm:p-4 flex items-center gap-2 sm:gap-3">
+          <AlertTriangle className="h-4 w-4 sm:h-5 sm:w-5 text-red-500 flex-shrink-0" />
+          <div className="min-w-0">
+            <p className="text-xl sm:text-2xl font-bold text-red-700">{overdueCommitments.length}</p>
+            <p className="text-[10px] sm:text-xs text-red-500">Overdue</p>
           </div>
         </div>
-        <div className="rounded-xl bg-emerald-50 p-4 flex items-center gap-3">
-          <CheckCircle2 className="h-5 w-5 text-emerald-500" />
-          <div>
-            <p className="text-2xl font-bold text-emerald-700">{completedCommitments.length + completedTasks.length}</p>
-            <p className="text-xs text-emerald-500">Completed</p>
+        <div className="rounded-xl bg-emerald-50 p-3 sm:p-4 flex items-center gap-2 sm:gap-3">
+          <CheckCircle2 className="h-4 w-4 sm:h-5 sm:w-5 text-emerald-500 flex-shrink-0" />
+          <div className="min-w-0">
+            <p className="text-xl sm:text-2xl font-bold text-emerald-700">{completedCommitments.length + completedTasks.length}</p>
+            <p className="text-[10px] sm:text-xs text-emerald-500">Done</p>
           </div>
         </div>
       </div>

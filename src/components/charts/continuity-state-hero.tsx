@@ -19,11 +19,11 @@ export function ContinuityStateHero({ score, state, activeThreads, unresolvedCou
   const data = [{ value: clampedScore, fill: meta.fill }]
 
   return (
-    <div className={`rounded-xl px-6 py-5 ${meta.bg} border border-transparent`}>
-      <div className="flex items-center gap-6">
+    <div className={`rounded-xl px-4 py-4 sm:px-6 sm:py-5 ${meta.bg} border border-transparent`}>
+      <div className="flex items-center gap-4 sm:gap-6">
         {/* Radial gauge */}
         <div className="flex-shrink-0">
-          <div className="relative w-[100px] h-[100px]">
+          <div className="relative w-[80px] h-[80px] sm:w-[100px] sm:h-[100px]">
             <RadialBarChart
               width={100}
               height={100}
@@ -53,7 +53,7 @@ export function ContinuityStateHero({ score, state, activeThreads, unresolvedCou
         <div className="flex-1 min-w-0">
           <p className={`text-sm font-semibold ${meta.color}`}>{meta.label}</p>
           <p className="text-xs text-slate-500 mt-0.5">{meta.description}</p>
-          <div className="flex items-center gap-4 mt-3 text-xs text-slate-500">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-4 mt-2 sm:mt-3 text-[11px] sm:text-xs text-slate-500">
             {activeThreads > 0 && (
               <span>{activeThreads} open {activeThreads === 1 ? 'loop' : 'loops'}</span>
             )}

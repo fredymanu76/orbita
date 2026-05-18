@@ -105,7 +105,7 @@ export default function ThreadsPage() {
       </div>
 
       {/* Summary stat cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
         <StatCard icon={GitBranch} label="Total" value={threads.length} color="text-slate-600" bg="bg-slate-50" />
         <StatCard icon={Activity} label="Active" value={activeCount} color="text-emerald-600" bg="bg-emerald-50" />
         <StatCard icon={AlertTriangle} label="Needs closure" value={unresolvedCount} color="text-orange-600" bg="bg-orange-50" />
@@ -119,7 +119,7 @@ export default function ThreadsPage() {
       </div>
 
       {/* Filters */}
-      <div className="flex gap-1 flex-wrap">
+      <div className="flex gap-1.5 flex-wrap mobile-scroll-x">
         {FILTERS.map(f => (
           <button
             key={f.key}
@@ -207,12 +207,12 @@ function ThreadGroup({ label, threads, onAction }: { label: string; threads: Thr
 
 function StatCard({ icon: Icon, label, value, color, bg }: { icon: typeof GitBranch; label: string; value: number; color: string; bg: string }) {
   return (
-    <div className={`rounded-xl ${bg} p-4`}>
-      <div className="flex items-center gap-2 mb-1">
-        <Icon className={`h-4 w-4 ${color}`} />
-        <span className="text-xs text-slate-500">{label}</span>
+    <div className={`rounded-xl ${bg} p-3 sm:p-4`}>
+      <div className="flex items-center gap-1.5 sm:gap-2 mb-1">
+        <Icon className={`h-3.5 w-3.5 sm:h-4 sm:w-4 ${color} flex-shrink-0`} />
+        <span className="text-[11px] sm:text-xs text-slate-500 truncate">{label}</span>
       </div>
-      <p className={`text-2xl font-bold ${color}`}>{value}</p>
+      <p className={`text-xl sm:text-2xl font-bold ${color}`}>{value}</p>
     </div>
   )
 }

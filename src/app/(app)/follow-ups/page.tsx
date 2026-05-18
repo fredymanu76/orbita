@@ -79,26 +79,26 @@ export default function FollowUpsPage() {
       </div>
 
       {/* Stat cards */}
-      <div className="grid grid-cols-3 gap-3">
-        <div className="rounded-xl bg-slate-50 p-4 flex items-center gap-3">
-          <Activity className="h-5 w-5 text-slate-500" />
-          <div>
-            <p className="text-2xl font-bold text-slate-700">{followUps.length}</p>
-            <p className="text-xs text-slate-400">Total</p>
+      <div className="grid grid-cols-3 gap-2 sm:gap-3">
+        <div className="rounded-xl bg-slate-50 p-3 sm:p-4 flex items-center gap-2 sm:gap-3">
+          <Activity className="h-4 w-4 sm:h-5 sm:w-5 text-slate-500 flex-shrink-0" />
+          <div className="min-w-0">
+            <p className="text-xl sm:text-2xl font-bold text-slate-700">{followUps.length}</p>
+            <p className="text-[10px] sm:text-xs text-slate-400">Total</p>
           </div>
         </div>
-        <div className="rounded-xl bg-red-50 p-4 flex items-center gap-3">
-          <AlertCircle className="h-5 w-5 text-red-500" />
-          <div>
-            <p className="text-2xl font-bold text-red-700">{overdue.length}</p>
-            <p className="text-xs text-red-500">Overdue</p>
+        <div className="rounded-xl bg-red-50 p-3 sm:p-4 flex items-center gap-2 sm:gap-3">
+          <AlertCircle className="h-4 w-4 sm:h-5 sm:w-5 text-red-500 flex-shrink-0" />
+          <div className="min-w-0">
+            <p className="text-xl sm:text-2xl font-bold text-red-700">{overdue.length}</p>
+            <p className="text-[10px] sm:text-xs text-red-500">Overdue</p>
           </div>
         </div>
-        <div className="rounded-xl bg-blue-50 p-4 flex items-center gap-3">
-          <CalendarCheck className="h-5 w-5 text-blue-500" />
-          <div>
-            <p className="text-2xl font-bold text-blue-700">{upcoming.length}</p>
-            <p className="text-xs text-blue-500">Upcoming</p>
+        <div className="rounded-xl bg-blue-50 p-3 sm:p-4 flex items-center gap-2 sm:gap-3">
+          <CalendarCheck className="h-4 w-4 sm:h-5 sm:w-5 text-blue-500 flex-shrink-0" />
+          <div className="min-w-0">
+            <p className="text-xl sm:text-2xl font-bold text-blue-700">{upcoming.length}</p>
+            <p className="text-[10px] sm:text-xs text-blue-500">Upcoming</p>
           </div>
         </div>
       </div>

@@ -114,17 +114,17 @@ export default function MemoriesPage() {
 
       {/* Capture method chart */}
       {chartData.length > 0 && !searchResults && (
-        <div className="rounded-xl bg-white/80 border border-slate-100 p-5 mb-5">
+        <div className="rounded-xl bg-white/80 border border-slate-100 p-4 sm:p-5 mb-5">
           <p className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-3">Capture methods</p>
-          <div className="flex items-center gap-6">
-            <ResponsiveContainer width={130} height={130}>
+          <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-6">
+            <ResponsiveContainer width={120} height={120} className="flex-shrink-0">
               <PieChart>
                 <Pie
                   data={chartData}
                   cx="50%"
                   cy="50%"
-                  innerRadius={32}
-                  outerRadius={55}
+                  innerRadius={30}
+                  outerRadius={50}
                   paddingAngle={3}
                   dataKey="value"
                   strokeWidth={0}
@@ -139,25 +139,25 @@ export default function MemoriesPage() {
                 />
               </PieChart>
             </ResponsiveContainer>
-            <div className="flex-1 space-y-2">
+            <div className="flex-1 w-full space-y-2">
               {chartData.map((entry) => {
                 const pct = total > 0 ? Math.round((entry.value / total) * 100) : 0
                 return (
-                  <div key={entry.name} className="flex items-center gap-3">
+                  <div key={entry.name} className="flex items-center gap-2 sm:gap-3">
                     <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: entry.fill }} />
-                    <span className="text-xs text-slate-600 w-12">{entry.name}</span>
+                    <span className="text-xs text-slate-600 w-10 sm:w-12">{entry.name}</span>
                     <div className="flex-1 bg-slate-100 rounded-full h-1.5">
                       <div
                         className="h-1.5 rounded-full transition-all"
                         style={{ width: `${pct}%`, backgroundColor: entry.fill }}
                       />
                     </div>
-                    <span className="text-xs text-slate-400 w-16 text-right">{entry.value} ({pct}%)</span>
+                    <span className="text-[11px] sm:text-xs text-slate-400 w-14 sm:w-16 text-right">{entry.value} ({pct}%)</span>
                   </div>
                 )
               })}
               {chartData.length >= 2 && (
-                <div className="pt-2 border-t border-slate-100 flex items-center gap-4 text-[11px] text-slate-400">
+                <div className="pt-2 border-t border-slate-100 flex items-center gap-3 sm:gap-4 text-[10px] sm:text-[11px] text-slate-400">
                   <span>Most used: <span className="font-medium text-slate-600">{mostUsed?.name}</span></span>
                   <span>Least used: <span className="font-medium text-slate-600">{leastUsed?.name}</span></span>
                 </div>

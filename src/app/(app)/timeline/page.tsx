@@ -168,32 +168,32 @@ export default function TimelinePage() {
       <TimelineActivityChart data={activityData} />
 
       {/* Stats row */}
-      <div className="grid grid-cols-3 gap-3">
-        <div className="rounded-xl bg-white/80 border border-slate-100 p-3 flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-indigo-50 flex items-center justify-center">
-            <Layers className="h-4 w-4 text-indigo-500" />
+      <div className="grid grid-cols-3 gap-2 sm:gap-3">
+        <div className="rounded-xl bg-white/80 border border-slate-100 p-2.5 sm:p-3 flex items-center gap-2 sm:gap-3">
+          <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-indigo-50 flex items-center justify-center flex-shrink-0">
+            <Layers className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-indigo-500" />
           </div>
-          <div>
-            <p className="text-lg font-bold text-slate-700">{events.length}</p>
-            <p className="text-[11px] text-slate-400">Captures</p>
-          </div>
-        </div>
-        <div className="rounded-xl bg-white/80 border border-slate-100 p-3 flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center">
-            <CalendarClock className="h-4 w-4 text-blue-500" />
-          </div>
-          <div>
-            <p className="text-lg font-bold text-slate-700">{dateGroups.length}</p>
-            <p className="text-[11px] text-slate-400">Days</p>
+          <div className="min-w-0">
+            <p className="text-base sm:text-lg font-bold text-slate-700">{events.length}</p>
+            <p className="text-[10px] sm:text-[11px] text-slate-400 truncate">Captures</p>
           </div>
         </div>
-        <div className="rounded-xl bg-white/80 border border-slate-100 p-3 flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-amber-50 flex items-center justify-center">
-            <Star className="h-4 w-4 text-amber-500" />
+        <div className="rounded-xl bg-white/80 border border-slate-100 p-2.5 sm:p-3 flex items-center gap-2 sm:gap-3">
+          <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
+            <CalendarClock className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-blue-500" />
           </div>
-          <div>
-            <p className="text-lg font-bold text-slate-700">{highImportanceCount}</p>
-            <p className="text-[11px] text-slate-400">High importance</p>
+          <div className="min-w-0">
+            <p className="text-base sm:text-lg font-bold text-slate-700">{dateGroups.length}</p>
+            <p className="text-[10px] sm:text-[11px] text-slate-400 truncate">Days</p>
+          </div>
+        </div>
+        <div className="rounded-xl bg-white/80 border border-slate-100 p-2.5 sm:p-3 flex items-center gap-2 sm:gap-3">
+          <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-amber-50 flex items-center justify-center flex-shrink-0">
+            <Star className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-amber-500" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-base sm:text-lg font-bold text-slate-700">{highImportanceCount}</p>
+            <p className="text-[10px] sm:text-[11px] text-slate-400 truncate">Important</p>
           </div>
         </div>
       </div>
