@@ -364,8 +364,9 @@ async function handleConverse(userId: string, content: string, reasoning: string
 async function handleAction(userId: string, query: string, reasoning: string) {
   const admin = createAdminClient()
 
-  // Gather the user's current state
-  const [commitmentsRes, threadsRes, stateRes] = await Promise.all([
+  // Gather the user's current state — all queries in parallel
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString()
+  const [commitmentsRes, threadsRes, stateRes, emotionalRes, patternsRes] = await Promise.all([
     admin
       .from('commitments')
       .select('description, status, direction, due_date, importance, people(name)')
@@ -385,16 +386,47 @@ async function handleAction(userId: string, query: string, reasoning: string) {
       .select('current_state, state_confidence')
       .eq('user_id', userId)
       .single(),
+    admin
+      .from('emotional_readings')
+      .select('emotion_label, valence, intensity, measured_at')
+      .eq('user_id', userId)
+      .gte('measured_at', thirtyDaysAgo)
+      .order('measured_at', { ascending: false })
+      .limit(10),
+    admin
+      .from('user_patterns')
+      .select('title, description, pattern_type, confidence')
+      .eq('user_id', userId)
+      .in('status', ['confirmed', 'established'])
+      .order('confidence', { ascending: false })
+      .limit(8),
   ])
 
   const commitments = commitmentsRes.data || []
   const threads = threadsRes.data || []
   const userState = stateRes.data
+  const emotionalReadings = emotionalRes.data || []
+  const patterns = patternsRes.data || []
 
   const contextParts: string[] = []
 
   if (userState) {
     contextParts.push(`User's inferred state: ${userState.current_state} (confidence: ${Math.round(userState.state_confidence * 100)}%)`)
+  }
+
+  if (emotionalReadings.length > 0) {
+    contextParts.push('\nRecent emotional readings:')
+    for (const r of emotionalReadings) {
+      const date = new Date(r.measured_at).toLocaleDateString()
+      contextParts.push(`- ${r.emotion_label} (valence: ${r.valence?.toFixed(1)}, intensity: ${r.intensity?.toFixed(1)}) on ${date}`)
+    }
+  }
+
+  if (patterns.length > 0) {
+    contextParts.push('\nObserved patterns:')
+    for (const p of patterns) {
+      contextParts.push(`- [${p.pattern_type}] ${p.title}: ${p.description}`)
+    }
   }
 
   if (commitments.length > 0) {
@@ -414,7 +446,7 @@ async function handleAction(userId: string, query: string, reasoning: string) {
     }
   }
 
-  const hasData = commitments.length > 0 || threads.length > 0
+  const hasData = commitments.length > 0 || threads.length > 0 || patterns.length > 0 || emotionalReadings.length > 0
 
   if (!hasData) {
     return NextResponse.json({

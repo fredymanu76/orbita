@@ -27,12 +27,11 @@ const INTENT_INSTRUCTIONS: Record<string, (ctx: { prefers_direct: boolean; prefe
       ? "One warm sentence. No advice unless asked."
       : "Reflect their feeling back. Connect to stated values if relevant. 2-3 sentences max.",
   converse: () => "Brief and warm. 1-2 sentences max.",
-  action: ({ prefers_direct, prefers_questions }) =>
-    prefers_direct
-      ? "3-5 numbered priorities max. Most important first. Each point is one sentence. Use format: '1. **Title** — action'. Never use ### headings. Be specific to the user's situation, not generic advice."
-      : prefers_questions
-        ? "Ask what matters most to them before advising. 2-3 sentences."
-        : "Give clear, specific, actionable guidance. 3-5 numbered points max. Use format: '1. **Title** — action'. Never use ### headings. Be specific to the user, not generic.",
+  action: ({ prefers_direct, prefers_questions }) => {
+    const base = "CRITICAL: Only reference threads, commitments, people, and patterns from the data below. Never give generic self-help advice. If the data doesn't address their question, say so honestly. Never use ### headings."
+    if (prefers_questions) return `${base} Ask what matters most to them before advising. 2-3 sentences.`
+    return `${base} ${prefers_direct ? 'Most important first.' : ''} 3-5 numbered points max. Use format: '1. **Title** — action'. Each point must reference specific data (a thread name, a person, a commitment, a pattern).`
+  },
   companion_open: () => "Open by stating continuity state. Surface threads by name. Mention unresolved commitments with people names. Never use ### headings.",
   companion_continue: () => "Only reference people, threads, facts from the data. Never fabricate. Never use ### headings.",
 }
