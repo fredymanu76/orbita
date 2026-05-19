@@ -7,6 +7,7 @@ import { Send, Mic, X, Sparkles, Archive } from 'lucide-react'
 import { toast } from 'sonner'
 import { useRouter } from 'next/navigation'
 import { getAdaptivePrompt } from '@/lib/cognition/adaptive-prompts'
+import { FormattedMessage } from '@/components/ui/formatted-message'
 import type { PersonaMode, UserState, InputIntent } from '@/lib/types'
 
 interface InlineResponse {
@@ -152,7 +153,7 @@ export function QuickCaptureBar() {
               const Icon = meta.icon
               return <Icon className={`h-4 w-4 mt-0.5 shrink-0 ${meta.color}`} />
             })()}
-            <p className="leading-relaxed">{inlineResponse.response}</p>
+            <FormattedMessage content={inlineResponse.response} />
           </div>
           {inlineResponse.stored && (
             <p className="text-[11px] text-slate-400 mt-1.5 ml-6">Also saved to your memory</p>
