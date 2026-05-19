@@ -29,6 +29,16 @@ const ACTION_PHRASES = [
   'what do i need', 'what\'s most important', 'what is most important',
   'what matters', 'what do i do', 'guide me', 'advise me',
   'what\'s next', 'what is next', 'what now',
+  // Imperative requests — user wants output, not storage
+  'give me', 'make me', 'create a', 'create me', 'build me',
+  'plan for', 'plan to', 'a plan', 'suggest', 'recommend',
+  'list my', 'list the', 'show me', 'tell me', 'remind me',
+  'walk me through', 'break down', 'break it down',
+  'steps to', 'how to', 'how can i', 'how do i',
+  'i need help', 'i need a plan', 'i need advice',
+  'i want a plan', 'i want advice', 'i want help',
+  'tips for', 'tips on', 'ideas for', 'ideas on',
+  'ways to', 'strategy for', 'approach to',
 ]
 
 const ACKNOWLEDGE_WORDS = [
@@ -212,6 +222,7 @@ Rules:
 - "I'm feeling overwhelmed" → reflect (store + respond)
 - "Thanks" → converse
 - Short meaningless phrases → converse
+- CRITICAL: Imperative requests are ALWAYS action, even with emotional words. "Give me a plan to reduce my anxiety" → action (NOT reflect/capture). "Help me prioritise my week" → action. "Suggest ways to manage stress" → action. If the user asks for output (plan, advice, list, steps, suggestions), it is action.
 
 Return valid JSON only.`,
         },
