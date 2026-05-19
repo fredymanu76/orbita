@@ -56,7 +56,34 @@ export async function runThreadStateTransitions(userId: string): Promise<{
       }
     }
 
-    // Skip further checks if already transitioning to time_sensitive
+    // Check for cooling → completed (7 days no activity while cooling)
+    if (!newStatus && thread.status === 'cooling' && daysSinceActivity >= 7) {
+      newStatus = 'completed'
+      reason = `Cooling period ended — no activity for ${Math.floor(daysSinceActivity)} days`
+    }
+
+    // Skip further checks if already transitioning to time_sensitive or completed
+    if (!newStatus) {
+      // Check if all commitments are resolved → transition to cooling
+      if (thread.status === 'active' && thread.commitment_count > 0) {
+        const { data: threadCommitments } = await supabase
+          .from('thread_entities')
+          .select('entity_id, commitments(status)')
+          .eq('thread_id', thread.id)
+          .eq('entity_type', 'commitment')
+
+        const allResolved = (threadCommitments || []).every(te => {
+          const c = te.commitments as unknown as { status: string } | null
+          return !c || c.status !== 'active'
+        })
+
+        if (allResolved && (threadCommitments || []).length > 0) {
+          newStatus = 'cooling'
+          reason = 'All commitments resolved — entering cooling period'
+        }
+      }
+    }
+
     if (!newStatus) {
       if (thread.status === 'active' && daysSinceActivity >= 3 && thread.commitment_count > 0) {
         // Check if any commitments are still active

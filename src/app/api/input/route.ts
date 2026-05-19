@@ -5,6 +5,7 @@ import { classifyIntent } from '@/lib/cognition/intent-router'
 import { processMemory } from '@/lib/pipeline/process-memory'
 import { generateEmbedding } from '@/lib/ai/embeddings'
 import { getOpenAIClient } from '@/lib/ai/openai'
+import { buildVoiceContext } from '@/lib/cognition/voice-engine'
 
 export const maxDuration = 60
 
@@ -177,20 +178,20 @@ async function handleAsk(userId: string, query: string, reasoning: string) {
     }
   }
 
+  const voice = await buildVoiceContext(userId, 'ask')
+
   const openai = getOpenAIClient()
   const completion = await openai.chat.completions.create({
     model: 'gpt-4o-mini',
     messages: [
       {
         role: 'system',
-        content: `You are answering a question about the user's own life based on their captured data. Be specific, mention names and dates. Be concise — 2-4 sentences max. Never fabricate information not in the data. If uncertain, say so gently.
-
-${contextParts.join('\n')}`,
+        content: `${voice.systemPrompt}\n\n${contextParts.join('\n')}`,
       },
       { role: 'user', content: query },
     ],
-    temperature: 0.3,
-    max_tokens: 300,
+    temperature: voice.temperature,
+    max_tokens: voice.maxTokens,
   })
 
   const response = completion.choices[0].message.content || ''
@@ -264,20 +265,20 @@ async function handleReflect(userId: string, content: string, reasoning: string)
     }
   }
 
+  const voice = await buildVoiceContext(userId, 'reflect')
+
   const openai = getOpenAIClient()
   const completion = await openai.chat.completions.create({
     model: 'gpt-4o-mini',
     messages: [
       {
         role: 'system',
-        content: `The user is reflecting or expressing emotions. Respond with warmth and understanding. 1-3 sentences max. Don't be clinical or therapeutic — be like a trusted companion who remembers their context. Never dismiss their feelings. If they seem overwhelmed, keep it simple. Don't offer unsolicited advice unless they're clearly asking for it.
-
-${contextParts.join('\n')}`,
+        content: `${voice.systemPrompt}\n\n${contextParts.join('\n')}`,
       },
       { role: 'user', content },
     ],
-    temperature: 0.4,
-    max_tokens: 200,
+    temperature: voice.temperature,
+    max_tokens: voice.maxTokens,
   })
 
   const response = completion.choices[0].message.content || ''
@@ -296,7 +297,6 @@ ${contextParts.join('\n')}`,
  * Greetings, acknowledgments, small talk.
  */
 async function handleConverse(userId: string, content: string, reasoning: string) {
-  const admin = createAdminClient()
   const lower = content.toLowerCase().trim()
 
   // For very simple acknowledgments, respond deterministically (no GPT needed)
@@ -330,30 +330,8 @@ async function handleConverse(userId: string, content: string, reasoning: string
     })
   }
 
-  // For greetings and slightly more complex conversation, use GPT with context
-  let userContext = ''
-  try {
-    const { data: stateData } = await admin
-      .from('user_state')
-      .select('current_state')
-      .eq('user_id', userId)
-      .single()
-
-    const { data: profile } = await admin
-      .from('profiles')
-      .select('full_name')
-      .eq('id', userId)
-      .single()
-
-    if (profile?.full_name || stateData?.current_state) {
-      const parts: string[] = []
-      if (profile?.full_name) parts.push(`User's name: ${profile.full_name}`)
-      if (stateData?.current_state) parts.push(`Current state: ${stateData.current_state}`)
-      userContext = parts.join('. ')
-    }
-  } catch {
-    // Context lookup failed — respond without it
-  }
+  // For greetings and slightly more complex conversation, use GPT with voice context
+  const voice = await buildVoiceContext(userId, 'converse')
 
   const openai = getOpenAIClient()
   const completion = await openai.chat.completions.create({
@@ -361,12 +339,12 @@ async function handleConverse(userId: string, content: string, reasoning: string
     messages: [
       {
         role: 'system',
-        content: `You are Orbita, a warm personal companion. The user is making conversation — respond briefly and naturally. 1-2 sentences max. Be warm but not over-the-top. Don't offer help unless asked. ${userContext}`,
+        content: voice.systemPrompt,
       },
       { role: 'user', content },
     ],
-    temperature: 0.5,
-    max_tokens: 100,
+    temperature: voice.temperature,
+    max_tokens: voice.maxTokens,
   })
 
   const response = completion.choices[0].message.content || ''
@@ -399,7 +377,7 @@ async function handleAction(userId: string, query: string, reasoning: string) {
       .from('threads')
       .select('title, status, thread_type, continuity_retention, commitment_count, last_activity_at, importance')
       .eq('user_id', userId)
-      .not('status', 'in', '("completed","paused")')
+      .not('status', 'in', '("completed","paused","cooling")')
       .order('importance', { ascending: false })
       .limit(8),
     admin
@@ -447,20 +425,20 @@ async function handleAction(userId: string, query: string, reasoning: string) {
     })
   }
 
+  const voice = await buildVoiceContext(userId, 'action')
+
   const openai = getOpenAIClient()
   const completion = await openai.chat.completions.create({
     model: 'gpt-4o-mini',
     messages: [
       {
         role: 'system',
-        content: `You are a trusted companion helping the user decide what matters most right now. Based on their active commitments, threads, and current state, give clear, specific, actionable guidance. Be direct. 3-5 sentences max. Mention specific items by name. If something is overdue, flag it. If the user seems overwhelmed, suggest just ONE thing.
-
-${contextParts.join('\n')}`,
+        content: `${voice.systemPrompt}\n\n${contextParts.join('\n')}`,
       },
       { role: 'user', content: query },
     ],
-    temperature: 0.3,
-    max_tokens: 300,
+    temperature: voice.temperature,
+    max_tokens: voice.maxTokens,
   })
 
   const response = completion.choices[0].message.content || ''

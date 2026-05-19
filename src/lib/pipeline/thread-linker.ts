@@ -263,6 +263,24 @@ async function linkMemoryToThread(
       link_confidence: Math.min(clc, 1.0),
     }, { onConflict: 'thread_id,memory_id' })
 
+  // Reactivate cooling/completed threads when new capture links to them
+  const { data: threadStatus } = await supabase
+    .from('threads')
+    .select('status')
+    .eq('id', threadId)
+    .single()
+
+  if (threadStatus && (threadStatus.status === 'cooling' || threadStatus.status === 'completed')) {
+    await supabase
+      .from('threads')
+      .update({
+        status: 'active',
+        continuity_retention: 1.0,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', threadId)
+  }
+
   // Link entities (only fact-classified people)
   await linkEntitiesToThread(supabase, threadId, userId, entities)
 

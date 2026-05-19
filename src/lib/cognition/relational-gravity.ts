@@ -7,6 +7,8 @@ interface PersonGravity {
   dependency_score: number
   interaction_frequency: number
   avoidance_signal: number
+  stress_association: number
+  communication_latency: number
   gravity_score: number
 }
 
@@ -20,7 +22,7 @@ export async function calculateRelationalGravity(userId: string): Promise<Person
   // Fetch all people for this user
   const { data: people } = await supabase
     .from('people')
-    .select('id, name, mention_count, last_mentioned_at, relationship')
+    .select('id, name, mention_count, last_mentioned_at, relationship, created_at')
     .eq('user_id', userId)
 
   if (!people || people.length === 0) return []
@@ -120,12 +122,25 @@ export async function calculateRelationalGravity(userId: string): Promise<Person
     const daysSince = lastMentioned ? (now - lastMentioned) / 86400000 : 999
     const avoidanceSignal = (mentionCount > 3 && daysSince > 14) ? Math.min(daysSince / 30, 1) : 0
 
-    // Composite gravity score
+    // Stress association: fraction of mentions co-occurring with negative emotional readings
+    const stressAssociation = emo && emo.count > 0
+      ? Math.max(0, -emo.totalValence / emo.count)
+      : 0
+
+    // Communication latency: average days between mentions, normalized
+    const createdAt = new Date(person.created_at || now).getTime()
+    const spanDays = Math.max(1, (now - createdAt) / 86400000)
+    const avgDaysBetween = spanDays / Math.max(1, mentionCount)
+    const communicationLatency = Math.min(1, avgDaysBetween / 14)
+
+    // Composite gravity score (6 dimensions)
     const gravityScore =
-      avgEmotionalWeight * 0.3 +
-      dependencyScore * 0.25 +
-      interactionFrequency * 0.25 +
-      avoidanceSignal * 0.2
+      avgEmotionalWeight * 0.25 +
+      dependencyScore * 0.20 +
+      interactionFrequency * 0.20 +
+      avoidanceSignal * 0.15 +
+      stressAssociation * 0.10 +
+      communicationLatency * 0.10
 
     gravityScores.push({
       person_id: person.id,
@@ -134,6 +149,8 @@ export async function calculateRelationalGravity(userId: string): Promise<Person
       dependency_score: dependencyScore,
       interaction_frequency: interactionFrequency,
       avoidance_signal: avoidanceSignal,
+      stress_association: stressAssociation,
+      communication_latency: communicationLatency,
       gravity_score: gravityScore,
     })
   }
@@ -157,6 +174,8 @@ export async function calculateRelationalGravity(userId: string): Promise<Person
           dependency_score: pg.dependency_score,
           interaction_frequency: pg.interaction_frequency,
           avoidance_signal: pg.avoidance_signal,
+          stress_association: pg.stress_association,
+          communication_latency: pg.communication_latency,
           person_id: pg.person_id,
         }],
         status: pg.gravity_score > 0.5 ? 'established' : 'emerging',
@@ -224,6 +243,12 @@ export async function calculateRelationalGravity(userId: string): Promise<Person
 }
 
 function buildGravityDescription(pg: PersonGravity): string {
+  if (pg.stress_association > 0.5) {
+    return `Mentions of ${pg.name} often co-occur with tension.`
+  }
+  if (pg.communication_latency > 0.7 && pg.dependency_score > 0.3) {
+    return `You depend on ${pg.name} but contact is sporadic.`
+  }
   if (pg.avoidance_signal > 0.5) {
     return `You haven't connected with ${pg.name} in a while.`
   }

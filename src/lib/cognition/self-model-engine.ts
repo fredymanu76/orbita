@@ -307,7 +307,10 @@ export async function rebuildUserProfile(userId: string): Promise<void> {
   // 7. Calculate relational gravity
   await calculateRelationalGravity(userId)
 
-  // 8. Decay old reflection memories if contradicted
+  // 8. Detect behavioral patterns from existing data
+  await detectBehavioralPatterns(supabase, userId)
+
+  // 9. Decay old reflection memories if contradicted
   await supabase
     .from('reflection_memory')
     .update({ active: false, updated_at: now })
@@ -488,6 +491,148 @@ async function upsertPattern(
         evidence_refs: data.evidence_refs,
         status: data.status || 'emerging',
       })
+  }
+}
+
+/**
+ * Detect behavioral patterns from existing data. Deterministic, no GPT.
+ *
+ * 3 patterns:
+ * 1. "Works in bursts" — stddev of daily captures > 2x mean, with zero-days adjacent to high-days
+ * 2. "Carries emotional load for others" — >60% of negative readings have associated people
+ * 3. "Evening cognitive load builds" — avg intensity 18-23 > 1.5x avg intensity 6-12
+ */
+async function detectBehavioralPatterns(
+  supabase: ReturnType<typeof createAdminClient>,
+  userId: string
+): Promise<void> {
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString()
+
+  // --- Pattern 1: Works in bursts ---
+  const { data: memories } = await supabase
+    .from('memory_items')
+    .select('created_at')
+    .eq('user_id', userId)
+    .gte('created_at', thirtyDaysAgo)
+
+  if (memories && memories.length >= 10) {
+    // Count captures per day
+    const dayCounts = new Map<string, number>()
+    for (const m of memories) {
+      const day = m.created_at.split('T')[0]
+      dayCounts.set(day, (dayCounts.get(day) || 0) + 1)
+    }
+
+    // Fill in zero-days for the 30-day span
+    const counts: number[] = []
+    const start = new Date(Date.now() - 30 * 86400000)
+    for (let i = 0; i < 30; i++) {
+      const d = new Date(start.getTime() + i * 86400000)
+      const key = d.toISOString().split('T')[0]
+      counts.push(dayCounts.get(key) || 0)
+    }
+
+    const mean = counts.reduce((s, c) => s + c, 0) / counts.length
+    if (mean > 0) {
+      const variance = counts.reduce((s, c) => s + (c - mean) ** 2, 0) / counts.length
+      const stddev = Math.sqrt(variance)
+
+      // Check for zero-days adjacent to high-days
+      let hasAdjacentPattern = false
+      for (let i = 1; i < counts.length; i++) {
+        if ((counts[i] === 0 && counts[i - 1] > mean * 2) ||
+            (counts[i] > mean * 2 && counts[i - 1] === 0)) {
+          hasAdjacentPattern = true
+          break
+        }
+      }
+
+      if (stddev > 2 * mean && hasAdjacentPattern) {
+        await upsertPattern(supabase, userId, {
+          pattern_type: 'daily_rhythm',
+          title: 'You tend to work in intense bursts rather than steady rhythms',
+          description: `Over the last 30 days, your activity varies widely — some days are very active while adjacent days are quiet.`,
+          confidence: Math.min(stddev / (3 * mean), 1),
+          evidence_refs: [{ mean_daily: Math.round(mean * 10) / 10, stddev: Math.round(stddev * 10) / 10, days_analysed: 30 }],
+          status: 'established',
+        })
+      }
+    }
+  }
+
+  // --- Pattern 2: Carries emotional load for others ---
+  const { data: negativeReadings } = await supabase
+    .from('emotional_readings')
+    .select('id, source_memory_id')
+    .eq('user_id', userId)
+    .lt('valence', -0.3)
+    .gte('measured_at', thirtyDaysAgo)
+
+  if (negativeReadings && negativeReadings.length >= 5) {
+    const memoryIds = negativeReadings
+      .map(r => r.source_memory_id)
+      .filter((id): id is string => id !== null)
+
+    if (memoryIds.length > 0) {
+      const { data: peopleLinks } = await supabase
+        .from('memory_people')
+        .select('memory_id')
+        .eq('user_id', userId)
+        .in('memory_id', memoryIds)
+
+      const memoriesWithPeople = new Set((peopleLinks || []).map(l => l.memory_id))
+      const fractionWithPeople = memoriesWithPeople.size / memoryIds.length
+
+      if (fractionWithPeople > 0.6) {
+        await upsertPattern(supabase, userId, {
+          pattern_type: 'emotional_pattern',
+          title: 'You often carry emotional weight connected to others',
+          description: `${Math.round(fractionWithPeople * 100)}% of your negative emotional readings are associated with other people.`,
+          confidence: Math.min(fractionWithPeople, 1),
+          evidence_refs: [{ fraction: Math.round(fractionWithPeople * 100), negative_readings: negativeReadings.length }],
+          status: 'established',
+        })
+      }
+    }
+  }
+
+  // --- Pattern 3: Evening cognitive load builds ---
+  const { data: allReadings } = await supabase
+    .from('emotional_readings')
+    .select('intensity, measured_at')
+    .eq('user_id', userId)
+    .gte('measured_at', thirtyDaysAgo)
+
+  if (allReadings && allReadings.length >= 10) {
+    let morningSum = 0, morningCount = 0
+    let eveningSum = 0, eveningCount = 0
+
+    for (const r of allReadings) {
+      const hour = new Date(r.measured_at).getHours()
+      if (hour >= 6 && hour < 12) {
+        morningSum += r.intensity
+        morningCount++
+      } else if (hour >= 18 && hour <= 23) {
+        eveningSum += r.intensity
+        eveningCount++
+      }
+    }
+
+    if (morningCount >= 3 && eveningCount >= 3) {
+      const morningAvg = morningSum / morningCount
+      const eveningAvg = eveningSum / eveningCount
+
+      if (morningAvg > 0 && eveningAvg > morningAvg * 1.5) {
+        await upsertPattern(supabase, userId, {
+          pattern_type: 'daily_rhythm',
+          title: 'Your mental load tends to build through the day',
+          description: `Evening emotional intensity (${Math.round(eveningAvg * 100) / 100}) is significantly higher than morning (${Math.round(morningAvg * 100) / 100}).`,
+          confidence: Math.min(eveningAvg / morningAvg / 3, 1),
+          evidence_refs: [{ morning_avg: Math.round(morningAvg * 100) / 100, evening_avg: Math.round(eveningAvg * 100) / 100 }],
+          status: 'established',
+        })
+      }
+    }
   }
 }
 

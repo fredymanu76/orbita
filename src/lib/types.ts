@@ -434,6 +434,7 @@ export type ThreadStatus =
   | 'unresolved'
   | 'paused'
   | 'completed'
+  | 'cooling'
   | 'forgotten_risk'
   | 'emotionally_sensitive'
   | 'time_sensitive'

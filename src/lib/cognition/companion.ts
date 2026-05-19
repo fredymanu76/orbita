@@ -2,6 +2,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { getOpenAIClient } from '@/lib/ai/openai'
 import { getContextWindow } from './cognitive-graph'
 import { getPendingFollowUps } from './follow-up-detection'
+import { buildVoiceContext } from './voice-engine'
 import type { ContextWindow } from '@/lib/types'
 
 const COMPANION_SYSTEM_PROMPT = `You are a continuity mediator. You restore context, reconnect abandoned threads, surface forgotten obligations, and reconstruct interrupted reasoning.
@@ -62,7 +63,7 @@ export async function openContextWindow(userId: string): Promise<{
       .from('threads')
       .select('id, title, status, thread_type, continuity_retention, commitment_count, last_activity_at, importance')
       .eq('user_id', userId)
-      .not('status', 'in', '("completed")')
+      .not('status', 'in', '("completed","cooling")')
       .order('last_activity_at', { ascending: false })
       .limit(10)
 
@@ -114,17 +115,27 @@ export async function openContextWindow(userId: string): Promise<{
   if (!hasAnyData) {
     restoration = 'No continuity data available yet. Capture some thoughts, conversations, or commitments and your continuity state will build from there.'
   } else {
+    let voicePrompt = COMPANION_SYSTEM_PROMPT
+    let voiceTemp = 0.3
+    try {
+      const voice = await buildVoiceContext(userId, 'companion_open')
+      voicePrompt = voice.systemPrompt
+      voiceTemp = voice.temperature
+    } catch {
+      // Voice engine failed — fall back to static prompt
+    }
+
     const openai = getOpenAIClient()
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
-        { role: 'system', content: COMPANION_SYSTEM_PROMPT },
+        { role: 'system', content: voicePrompt },
         {
           role: 'user',
           content: `Generate a continuity restoration opening for the user. Be specific, use names and thread titles. State confidence levels where uncertain. CRITICAL: Only mention people, threads, and commitments that appear in the data below. If a section is empty, do not invent content for it. Here is their current state:\n\n${contextSummary}`,
         },
       ],
-      temperature: 0.3,
+      temperature: voiceTemp,
       max_tokens: 400,
     })
 
@@ -264,8 +275,19 @@ export async function continueInWindow(
   }
 
   // Build conversation for GPT — only when we have real data
+  let continuePrompt = COMPANION_SYSTEM_PROMPT
+  let continueTemp = 0.3
+  try {
+    const voice = await buildVoiceContext(userId, 'companion_continue')
+    continuePrompt = voice.systemPrompt
+    continueTemp = voice.temperature
+  } catch {
+    // Voice engine failed — fall back to static prompt
+  }
+  continuePrompt += '\n\nCRITICAL: Only reference people, threads, and facts that appear in the context data. If you cannot answer from the data provided, say so. Never invent names, relationships, or situations.'
+
   const conversationMessages = [
-    { role: 'system' as const, content: COMPANION_SYSTEM_PROMPT + '\n\nCRITICAL: Only reference people, threads, and facts that appear in the context data. If you cannot answer from the data provided, say so. Never invent names, relationships, or situations.' },
+    { role: 'system' as const, content: continuePrompt },
     ...(messages || []).map(m => ({
       role: m.role as 'system' | 'assistant' | 'user',
       content: m.content,
@@ -280,7 +302,7 @@ export async function continueInWindow(
   const completion = await openai.chat.completions.create({
     model: 'gpt-4o-mini',
     messages: conversationMessages,
-    temperature: 0.3,
+    temperature: continueTemp,
     max_tokens: 400,
   })
 
