@@ -1,5 +1,5 @@
 /**
- * Email delivery for Continuum resurfacing.
+ * Email delivery for Orbita resurfacing.
  *
  * Supports two providers:
  *   1. RegNexus Mail (own infrastructure) — set MAIL_PROVIDER=regnexus
@@ -18,7 +18,7 @@
  */
 
 const MAIL_PROVIDER = process.env.MAIL_PROVIDER || 'regnexus'
-const MAIL_FROM = process.env.MAIL_FROM || 'Continuum <continuity@regnexus.co.uk>'
+const MAIL_FROM = process.env.MAIL_FROM || 'Orbita <continuity@regnexus.co.uk>'
 
 interface EmailOptions {
   to: string
@@ -155,12 +155,12 @@ export function formatBriefEmail(briefContent: string, userName?: string): strin
     <div style="margin-top:28px;padding-top:16px;border-top:1px solid #e2e8f0;text-align:center">
       <a href="${process.env.NEXT_PUBLIC_APP_URL || 'https://continuum-web.vercel.app'}/dashboard"
          style="display:inline-block;background:#1e293b;color:white;padding:10px 20px;border-radius:6px;text-decoration:none;font-size:13px;font-weight:500">
-        Open Continuum
+        Open Orbita
       </a>
     </div>
 
     <p style="color:#cbd5e1;font-size:11px;text-align:center;margin-top:20px">
-      Continuum — cognitive continuity preservation
+      Orbita — cognitive continuity preservation
     </p>
   </div>
 </body>
@@ -191,7 +191,7 @@ export function formatAlertEmail(alerts: { title: string; description: string; u
     <div style="margin-top:20px;text-align:center">
       <a href="${process.env.NEXT_PUBLIC_APP_URL || 'https://continuum-web.vercel.app'}/follow-ups"
          style="display:inline-block;background:#1e293b;color:white;padding:10px 20px;border-radius:6px;text-decoration:none;font-size:13px">
-        View in Continuum
+        View in Orbita
       </a>
     </div>
   </div>

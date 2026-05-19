@@ -2,20 +2,23 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { QuickCaptureBar } from '@/components/capture/quick-capture-bar'
-import { ContinuityStateHero } from '@/components/charts/continuity-state-hero'
-import { CognitiveLoadChart } from '@/components/charts/cognitive-load-chart'
-import { ThreadDistributionChart } from '@/components/charts/thread-distribution-chart'
 import { ThreadCard } from '@/components/cards/thread-card'
+import { InsightCard } from '@/components/cards/insight-card'
 import { AttentionCard } from '@/components/cards/attention-card'
 import { RelationshipCard } from '@/components/cards/relationship-card'
+import { MorningGreeting } from '@/components/morning/morning-greeting'
+import { MorningSection } from '@/components/morning/morning-section'
+import { MorningSummaryBar } from '@/components/morning/morning-summary-bar'
+import { QuestionCard } from '@/components/self-model/question-card'
 import {
   CheckCircle2,
   ChevronRight,
+  ChevronDown,
 } from 'lucide-react'
 import { format, formatDistanceToNow } from 'date-fns'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
-import type { Commitment, ContinuityState, CognitiveLoadReading, Person, Thread } from '@/lib/types'
+import type { Commitment, ContinuityState, CognitiveLoadReading, Person, Thread, UserSupportNeed, OrbitaQuestion, UserState } from '@/lib/types'
 import { createClient } from '@/lib/supabase/client'
 
 export default function DashboardPage() {
@@ -25,31 +28,32 @@ export default function DashboardPage() {
   const [continuityScore, setContinuityScore] = useState(0)
   const [cognitiveLoadReading, setCognitiveLoadReading] = useState<CognitiveLoadReading | null>(null)
   const [peopleNeedingFollowUp, setPeopleNeedingFollowUp] = useState<(Person & { days_since: number })[]>([])
-  const [userName, setUserName] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+
+  // Self-model morning data
+  const [morningGreeting, setMorningGreeting] = useState<string>('')
+  const [morningSections, setMorningSections] = useState<{
+    people_relying: UserSupportNeed[]
+    may_slip: UserSupportNeed[]
+    one_to_close: UserSupportNeed | null
+    pattern_noticed: UserSupportNeed | null
+    question: OrbitaQuestion | null
+  }>({ people_relying: [], may_slip: [], one_to_close: null, pattern_noticed: null, question: null })
+  const [userState, setUserState] = useState<UserState>('stable')
+  const [showDetails, setShowDetails] = useState(false)
 
   const fetchData = useCallback(async () => {
     try {
-      // Fetch user's name from profile
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
-      if (user) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('full_name')
-          .eq('id', user.id)
-          .single()
-        if (profile?.full_name) {
-          setUserName(profile.full_name.split(' ')[0])
-        }
-      }
 
-      const [threadsRes, commitmentsRes, continuityRes, loadRes, peopleRes] = await Promise.all([
+      const [threadsRes, commitmentsRes, continuityRes, loadRes, peopleRes, morningRes] = await Promise.all([
         fetch('/api/threads?include_people=true'),
         fetch('/api/commitments?status=active'),
         fetch('/api/continuity'),
         fetch('/api/cognitive-load'),
         fetch('/api/people'),
+        fetch('/api/self-model/morning'),
       ])
 
       if (threadsRes.ok) {
@@ -83,6 +87,12 @@ export default function DashboardPage() {
           .slice(0, 4)
         setPeopleNeedingFollowUp(sorted)
       }
+      if (morningRes.ok) {
+        const data = await morningRes.json()
+        setMorningGreeting(data.greeting || '')
+        setMorningSections(data.sections || { people_relying: [], may_slip: [], one_to_close: null, pattern_noticed: null, question: null })
+        setUserState(data.state || 'stable')
+      }
     } catch {
       // Silently fail
     } finally {
@@ -92,10 +102,43 @@ export default function DashboardPage() {
 
   useEffect(() => { fetchData() }, [fetchData])
 
-  const today = format(new Date(), 'EEEE, MMMM d')
   const todayStr = format(new Date(), 'yyyy-MM-dd')
 
-  // Build surfaced items with deterministic reasons
+  async function handleInsightAction(id: string, action: 'accepted' | 'dismissed' | 'corrected', correction?: string) {
+    await fetch(`/api/self-model/support-needs/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, correction }),
+    })
+    // Remove from UI
+    setMorningSections(prev => ({
+      ...prev,
+      people_relying: prev.people_relying.filter(n => n.id !== id),
+      may_slip: prev.may_slip.filter(n => n.id !== id),
+      one_to_close: prev.one_to_close?.id === id ? null : prev.one_to_close,
+      pattern_noticed: prev.pattern_noticed?.id === id ? null : prev.pattern_noticed,
+    }))
+  }
+
+  async function handleQuestionAnswer(id: string, answer: string) {
+    await fetch(`/api/self-model/questions/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'answered', answer }),
+    })
+    setMorningSections(prev => ({ ...prev, question: null }))
+  }
+
+  async function handleQuestionDismiss(id: string) {
+    await fetch(`/api/self-model/questions/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'dismissed' }),
+    })
+    setMorningSections(prev => ({ ...prev, question: null }))
+  }
+
+  // Build legacy surfaced items
   interface SurfacedItem {
     id: string
     type: string
@@ -171,24 +214,24 @@ export default function DashboardPage() {
 
   const activeThreads = threads.filter(t => !['completed', 'paused'].includes(t.status))
   const unresolvedCount = threads.filter(t => ['unresolved', 'forgotten_risk', 'time_sensitive'].includes(t.status)).length
-  const cognitiveLoad = cognitiveLoadReading?.load_score ?? null
+
+  const hasMorningContent = morningSections.people_relying.length > 0 ||
+    morningSections.may_slip.length > 0 ||
+    morningSections.one_to_close ||
+    morningSections.pattern_noticed ||
+    morningSections.question
 
   if (loading) {
     return (
       <div className="max-w-4xl mx-auto space-y-8 px-1">
         <div className="space-y-1">
-          <div className="h-7 bg-slate-100/60 rounded w-40 animate-pulse" />
+          <div className="h-7 bg-slate-100/60 rounded w-64 animate-pulse" />
           <div className="h-4 bg-slate-50 rounded w-28 animate-pulse" />
         </div>
         <div className="h-12 bg-slate-50 rounded-xl animate-pulse" />
-        <div className="h-28 bg-slate-50/60 rounded-xl animate-pulse" />
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="h-64 bg-slate-50/60 rounded-xl animate-pulse" />
-          <div className="h-64 bg-slate-50/60 rounded-xl animate-pulse" />
-        </div>
         <div className="space-y-3">
           {[1, 2, 3].map(i => (
-            <div key={i} className="h-20 bg-slate-50/60 rounded-xl animate-pulse" />
+            <div key={i} className="h-16 bg-slate-50/60 rounded-xl animate-pulse" />
           ))}
         </div>
       </div>
@@ -197,31 +240,109 @@ export default function DashboardPage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-8 px-1">
-      {/* Greeting + date */}
-      <div>
-        <h1 className="text-2xl font-semibold text-slate-800">Good {getTimeOfDay()}{userName ? `, ${userName}` : ''}</h1>
-        <p className="text-sm text-slate-400 mt-0.5">{today}</p>
-      </div>
+      {/* State-aware greeting */}
+      <MorningGreeting greeting={morningGreeting || `Good ${getTimeOfDay()}`} />
 
       {/* Quick capture */}
       <QuickCaptureBar />
 
-      {/* Continuity State Hero — radial gauge */}
-      <ContinuityStateHero
-        score={continuityScore}
-        state={continuityState}
+      {/* Compact summary bar (replaces ContinuityStateHero) */}
+      <MorningSummaryBar
         activeThreads={activeThreads.length}
         unresolvedCount={unresolvedCount}
-        cognitiveLoad={cognitiveLoad}
+        continuityScore={continuityScore}
       />
 
-      {/* Two-column chart row */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <CognitiveLoadChart reading={cognitiveLoadReading} />
-        <ThreadDistributionChart threads={threads as Thread[]} view="type" />
-      </div>
+      {/* Morning sections — InsightCards */}
+      {hasMorningContent && (
+        <div className="space-y-4">
+          {morningSections.people_relying.length > 0 && (
+            <MorningSection label="People counting on you">
+              {morningSections.people_relying.map(need => (
+                <InsightCard
+                  key={need.id}
+                  id={need.id}
+                  title={need.title}
+                  whyItMatters={need.why_it_matters}
+                  confidence={need.confidence}
+                  suggestedAction={need.suggested_action || undefined}
+                  category={need.category}
+                  evidenceRefs={need.evidence_refs}
+                  onAccept={(id) => handleInsightAction(id, 'accepted')}
+                  onDismiss={(id) => handleInsightAction(id, 'dismissed')}
+                  onCorrect={(id, correction) => handleInsightAction(id, 'corrected', correction)}
+                />
+              ))}
+            </MorningSection>
+          )}
 
-      {/* Attention Strip */}
+          {morningSections.may_slip.length > 0 && (
+            <MorningSection label="Might slip">
+              {morningSections.may_slip.map(need => (
+                <InsightCard
+                  key={need.id}
+                  id={need.id}
+                  title={need.title}
+                  whyItMatters={need.why_it_matters}
+                  confidence={need.confidence}
+                  suggestedAction={need.suggested_action || undefined}
+                  category={need.category}
+                  evidenceRefs={need.evidence_refs}
+                  onAccept={(id) => handleInsightAction(id, 'accepted')}
+                  onDismiss={(id) => handleInsightAction(id, 'dismissed')}
+                  onCorrect={(id, correction) => handleInsightAction(id, 'corrected', correction)}
+                />
+              ))}
+            </MorningSection>
+          )}
+
+          {morningSections.one_to_close && (
+            <MorningSection label="One thing to close">
+              <InsightCard
+                id={morningSections.one_to_close.id}
+                title={morningSections.one_to_close.title}
+                whyItMatters={morningSections.one_to_close.why_it_matters}
+                confidence={morningSections.one_to_close.confidence}
+                suggestedAction={morningSections.one_to_close.suggested_action || undefined}
+                category={morningSections.one_to_close.category}
+                evidenceRefs={morningSections.one_to_close.evidence_refs}
+                onAccept={(id) => handleInsightAction(id, 'accepted')}
+                onDismiss={(id) => handleInsightAction(id, 'dismissed')}
+                onCorrect={(id, correction) => handleInsightAction(id, 'corrected', correction)}
+              />
+            </MorningSection>
+          )}
+
+          {morningSections.pattern_noticed && (
+            <MorningSection label="Something Orbita noticed">
+              <InsightCard
+                id={morningSections.pattern_noticed.id}
+                title={morningSections.pattern_noticed.title}
+                whyItMatters={morningSections.pattern_noticed.why_it_matters}
+                confidence={morningSections.pattern_noticed.confidence}
+                suggestedAction={morningSections.pattern_noticed.suggested_action || undefined}
+                category={morningSections.pattern_noticed.category}
+                evidenceRefs={morningSections.pattern_noticed.evidence_refs}
+                onAccept={(id) => handleInsightAction(id, 'accepted')}
+                onDismiss={(id) => handleInsightAction(id, 'dismissed')}
+                onCorrect={(id, correction) => handleInsightAction(id, 'corrected', correction)}
+              />
+            </MorningSection>
+          )}
+
+          {morningSections.question && (
+            <QuestionCard
+              id={morningSections.question.id}
+              question={morningSections.question.question}
+              reason={morningSections.question.reason}
+              onAnswer={handleQuestionAnswer}
+              onDismiss={handleQuestionDismiss}
+            />
+          )}
+        </div>
+      )}
+
+      {/* Attention Strip (legacy — commitment overdue / time-sensitive) */}
       {surfacedItems.length > 0 && (
         <div className="space-y-2">
           <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">Needs your attention</p>
@@ -287,8 +408,26 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {/* Detailed metrics — collapsed by default */}
+      <div>
+        <button
+          onClick={() => setShowDetails(!showDetails)}
+          className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-500 transition-colors"
+        >
+          <ChevronDown className={`h-3 w-3 transition-transform ${showDetails ? 'rotate-180' : ''}`} />
+          {showDetails ? 'Hide details' : 'Show details'}
+        </button>
+        {showDetails && (
+          <div className="mt-3 space-y-4">
+            <p className="text-xs text-slate-400">
+              Continuity: {Math.round(continuityScore)}% | State: {continuityState} | Cognitive load: {cognitiveLoadReading?.load_score ? Math.round(cognitiveLoadReading.load_score * 100) + '%' : 'N/A'}
+            </p>
+          </div>
+        )}
+      </div>
+
       {/* Clear state */}
-      {activeThreads.length === 0 && surfacedItems.length === 0 && (
+      {activeThreads.length === 0 && surfacedItems.length === 0 && !hasMorningContent && (
         <div className="text-center py-12">
           <CheckCircle2 className="h-6 w-6 text-emerald-300 mx-auto mb-3" />
           <p className="text-sm text-slate-500">All clear. Nothing needs your attention right now.</p>

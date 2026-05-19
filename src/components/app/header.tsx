@@ -41,7 +41,8 @@ const primaryDrawerNav = [
 
 const secondaryDrawerNav = [
   { href: '/capture', label: 'Capture', icon: Mic },
-  { href: '/companion', label: 'Insights', icon: Sparkles },
+  { href: '/me', label: 'Me', icon: User },
+  { href: '/companion', label: 'Companion', icon: Sparkles },
   { href: '/timeline', label: 'Activity', icon: CalendarClock },
   { href: '/commitments', label: 'Promises', icon: Handshake },
   { href: '/follow-ups', label: 'Waiting On', icon: Clock },
@@ -57,7 +58,8 @@ const pageTitles: Record<string, string> = {
   '/people': 'People',
   '/settings': 'Settings',
   '/continuity/threads': 'Open Loops',
-  '/companion': 'Insights',
+  '/me': 'Me',
+  '/companion': 'Companion',
   '/timeline': 'Activity',
   '/follow-ups': 'Waiting On',
 }
@@ -67,7 +69,7 @@ export function Header() {
   const router = useRouter()
   const supabase = createClient()
 
-  const title = pageTitles[pathname] || 'Continuum'
+  const title = pageTitles[pathname] || 'Orbita'
 
   async function handleSignOut() {
     await supabase.auth.signOut()
@@ -90,7 +92,7 @@ export function Header() {
             <SheetContent side="left" className="w-72 p-0" style={{ backgroundColor: 'oklch(0.985 0.005 80)' }}>
               <div className="px-5 pt-8 pb-6">
                 <h1 className="text-xl font-semibold text-slate-800 tracking-tight">
-                  Continuum
+                  Orbita
                 </h1>
                 <p className="text-[11px] text-slate-400 mt-0.5">Your day, remembered</p>
               </div>

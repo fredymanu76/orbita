@@ -9,6 +9,7 @@ import {
   MessageCircle,
   Handshake,
   Users,
+  User,
   Sparkles,
   GitBranch,
   Clock,
@@ -30,7 +31,8 @@ const primaryNav = [
 
 const secondaryNav = [
   { href: '/capture', label: 'Capture', icon: Mic },
-  { href: '/companion', label: 'Insights', icon: Sparkles },
+  { href: '/me', label: 'Me', icon: User },
+  { href: '/companion', label: 'Companion', icon: Sparkles },
   { href: '/timeline', label: 'Activity', icon: CalendarClock },
   { href: '/commitments', label: 'Promises', icon: Handshake },
   { href: '/follow-ups', label: 'Waiting On', icon: Clock },
@@ -68,7 +70,7 @@ export function Sidebar() {
     <aside className="hidden md:flex flex-col w-56 border-r border-slate-100/80 h-screen sticky top-0" style={{ backgroundColor: 'oklch(0.985 0.005 80)' }}>
       <div className="px-5 pt-6 pb-4">
         <h1 className="text-lg font-semibold text-slate-800 tracking-tight">
-          Continuum
+          Orbita
         </h1>
         <p className="text-[11px] text-slate-300 mt-0.5">Your day, remembered</p>
       </div>

@@ -75,7 +75,7 @@ export default function SignupPage() {
             Create your account
           </CardTitle>
           <CardDescription className="text-slate-500">
-            Start preserving what matters with Continuum
+            Start preserving what matters with Orbita
           </CardDescription>
         </CardHeader>
         <form onSubmit={handleSignup}>

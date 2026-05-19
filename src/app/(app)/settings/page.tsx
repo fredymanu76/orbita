@@ -141,7 +141,7 @@ export default function SettingsPage() {
             <Bell className="h-4 w-4" />
             Notifications
           </CardTitle>
-          <CardDescription>How Continuum resurfaces forgotten context</CardDescription>
+          <CardDescription>How Orbita resurfaces forgotten context</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-3">

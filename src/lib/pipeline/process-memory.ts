@@ -9,6 +9,7 @@ import { createFollowUpCandidates } from '@/lib/cognition/follow-up-detection'
 import { getEffectiveDecayCoefficient } from '@/lib/cognition/decay-engine'
 import { createEmotionalSignals } from '@/lib/cognition/emotional-mapping'
 import { calculateMemoryConfidence } from '@/lib/cognition/memory-confidence'
+import { incrementalProfileUpdate } from '@/lib/cognition/self-model-engine'
 import { linkToThread } from './thread-linker'
 import type { ExtractedEntities } from '@/lib/types'
 
@@ -296,6 +297,14 @@ export async function processMemory(memoryId: string) {
       trace.push({ step: 'memory_confidence', status: 'ok' })
     } catch (err) {
       trace.push({ step: 'memory_confidence', status: 'error', detail: err instanceof Error ? err.message : String(err) })
+    }
+
+    // 15. Self-model incremental update
+    try {
+      await incrementalProfileUpdate(userId, memoryId, entities)
+      trace.push({ step: 'self_model', status: 'ok' })
+    } catch (err) {
+      trace.push({ step: 'self_model', status: 'error', detail: err instanceof Error ? err.message : String(err) })
     }
 
     // Store the pipeline trace for debugging

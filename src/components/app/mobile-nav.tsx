@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard,
   Mic,
-  Brain,
+  User,
   MessageCircle,
   Handshake,
 } from 'lucide-react'
@@ -15,7 +15,7 @@ const mobileNavItems = [
   { href: '/dashboard', label: 'Today', icon: LayoutDashboard },
   { href: '/recall', label: 'Ask', icon: MessageCircle },
   { href: '/capture', label: 'Capture', icon: Mic, primary: true },
-  { href: '/memories', label: 'Memories', icon: Brain },
+  { href: '/me', label: 'Me', icon: User },
   { href: '/commitments', label: 'Promises', icon: Handshake },
 ]
 

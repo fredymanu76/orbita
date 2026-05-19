@@ -1,5 +1,5 @@
 /**
- * Push notification delivery for Continuum.
+ * Push notification delivery for Orbita.
  *
  * Supports two delivery channels:
  *   1. Web Push (RFC 8030) with VAPID authentication — for browsers

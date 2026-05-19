@@ -84,7 +84,7 @@ export async function GET(request: Request) {
         : `${totalAlerts} items may need attention`
       const body = topAlert
         ? ('description' in topAlert ? topAlert.description : topAlert.intent_description)
-        : 'Open Continuum to review'
+        : 'Open Orbita to review'
 
       await sendPushNotification(userId, {
         title,

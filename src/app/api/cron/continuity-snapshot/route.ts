@@ -4,6 +4,7 @@ import { saveContinuitySnapshot } from '@/lib/cognition/continuity-scoring'
 import { runDailyDecay } from '@/lib/cognition/decay-engine'
 import { updateBehaviouralDrift } from '@/lib/cognition/behavioural-drift'
 import { predictForgottenIntents } from '@/lib/cognition/forgotten-intent'
+import { rebuildUserProfile } from '@/lib/cognition/self-model-engine'
 
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get('authorization')
@@ -35,6 +36,9 @@ export async function GET(request: NextRequest) {
 
       // Run forgotten-intent prediction
       const predictions = await predictForgottenIntents(profile.id)
+
+      // Rebuild self-model profile (patterns, state, relational gravity, questions)
+      await rebuildUserProfile(profile.id)
 
       results.push({
         user_id: profile.id,

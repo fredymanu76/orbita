@@ -1,16 +1,53 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Send, Mic } from 'lucide-react'
 import { toast } from 'sonner'
 import { useRouter } from 'next/navigation'
+import { getAdaptivePrompt } from '@/lib/cognition/adaptive-prompts'
+import type { PersonaMode, UserState } from '@/lib/types'
 
 export function QuickCaptureBar() {
   const [content, setContent] = useState('')
   const [loading, setLoading] = useState(false)
+  const [placeholder, setPlaceholder] = useState('Quick capture...')
   const router = useRouter()
+
+  useEffect(() => {
+    async function loadPrompt() {
+      try {
+        const [profileRes, stateRes] = await Promise.all([
+          fetch('/api/self-model/profile'),
+          fetch('/api/self-model/state'),
+        ])
+
+        let persona: PersonaMode | null = null
+        let state: UserState | null = null
+
+        if (profileRes.ok) {
+          const data = await profileRes.json()
+          persona = data.profile?.active_persona || null
+        }
+        if (stateRes.ok) {
+          const data = await stateRes.json()
+          state = data.state || null
+        }
+
+        const prompt = getAdaptivePrompt({
+          persona,
+          state,
+          staleThreadTitle: null,
+          captureCountToday: 0,
+        })
+        setPlaceholder(prompt)
+      } catch {
+        // Keep default placeholder
+      }
+    }
+    loadPrompt()
+  }, [])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -38,7 +75,7 @@ export function QuickCaptureBar() {
   return (
     <form onSubmit={handleSubmit} className="flex items-center gap-2">
       <Input
-        placeholder="Quick capture..."
+        placeholder={placeholder}
         value={content}
         onChange={(e) => setContent(e.target.value)}
         className="flex-1"

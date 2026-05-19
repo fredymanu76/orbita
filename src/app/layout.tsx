@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Continuum",
+  title: "Orbita",
   description: "Your day, remembered — capture thoughts, keep promises, stay connected",
   viewport: {
     width: 'device-width',
@@ -25,7 +25,7 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
-    title: 'Continuum',
+    title: 'Orbita',
   },
 };
 

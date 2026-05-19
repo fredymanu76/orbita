@@ -7,7 +7,7 @@ const config: CapacitorConfig = {
   server: {
     // Remote URL pattern — the WebView loads the deployed Vercel app.
     // Update this to your production Vercel URL or custom domain.
-    url: 'https://continuum-brown.vercel.app',
+    url: 'https://orbita.vercel.app',
     cleartext: false,
   },
   plugins: {

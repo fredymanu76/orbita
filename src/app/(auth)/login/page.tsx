@@ -45,7 +45,7 @@ export default function LoginPage() {
             Welcome back
           </CardTitle>
           <CardDescription className="text-slate-500">
-            Sign in to continue with Continuum
+            Sign in to continue with Orbita
           </CardDescription>
         </CardHeader>
         <form onSubmit={handleLogin}>

@@ -488,3 +488,133 @@ export interface ThreadEntity {
   entity_id: string
   created_at: string
 }
+
+// --- Self Model Engine Types ---
+
+export type PersonaMode = 'carer' | 'worker' | 'parent' | 'founder' | 'faith_community' | 'student' | 'general'
+
+export type PatternType =
+  | 'role'
+  | 'recurring_area'
+  | 'relationship_pattern'
+  | 'pressure_signal'
+  | 'support_preference'
+  | 'daily_rhythm'
+  | 'emotional_pattern'
+  | 'commitment_pattern'
+  | 'social_pattern'
+  | 'relational_gravity'
+  | 'identity_reflection'
+
+export type PatternStatus = 'emerging' | 'established' | 'confirmed' | 'dismissed' | 'corrected'
+
+export type SupportNeedCategory =
+  | 'people_relying'
+  | 'things_slipping'
+  | 'closure_opportunity'
+  | 'new_pattern'
+  | 'pressure_building'
+  | 'relationship_health'
+  | 'forgotten_obligation'
+  | 'emotional_load'
+  | 'identity_neglect'
+
+export type MorningSection = 'people_relying' | 'may_slip' | 'one_to_close' | 'pattern_noticed' | 'question'
+
+export type QuestionStatus = 'pending' | 'shown' | 'answered' | 'dismissed' | 'expired'
+
+export type SupportNeedStatus = 'active' | 'accepted' | 'dismissed' | 'corrected' | 'expired'
+
+export type UserState = 'overwhelmed' | 'isolated' | 'drifting' | 'in_flow' | 'recovering' | 'stable' | 'stretched'
+
+export type ReflectionType = 'value' | 'aspiration' | 'identity_anchor' | 'emotional_anchor' | 'belief' | 'boundary'
+
+export interface UserLifeProfile {
+  id: string
+  user_id: string
+  roles: { role: string; confidence: number; evidence_count: number; first_seen: string; last_seen: string }[]
+  life_areas: { area: string; label: string; people: string[]; thread_count: number; confidence: number }[]
+  active_persona: PersonaMode | null
+  persona_confidence: number
+  persona_source: 'inference' | 'user_confirmed' | null
+  daily_rhythm: { peak_hours: number[]; quiet_hours: number[]; weekend_pattern: string | null }
+  support_style: { prefers_questions: boolean; prefers_direct: boolean; morning_detail_level: string; emotional_sensitivity: string }
+  completeness_score: number
+  last_inference_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface UserStateRecord {
+  id: string
+  user_id: string
+  current_state: UserState
+  state_confidence: number
+  state_signals: Record<string, unknown>[]
+  previous_state: UserState | null
+  state_changed_at: string
+  created_at: string
+  updated_at: string
+}
+
+export interface UserPattern {
+  id: string
+  user_id: string
+  pattern_type: PatternType
+  title: string
+  description: string
+  confidence: number
+  evidence_count: number
+  evidence_refs: Record<string, unknown>[]
+  status: PatternStatus
+  user_response: 'accepted' | 'dismissed' | 'corrected' | null
+  user_correction: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface UserSupportNeed {
+  id: string
+  user_id: string
+  title: string
+  why_it_matters: string
+  evidence_summary: string | null
+  suggested_action: string | null
+  confidence: number
+  evidence_refs: Record<string, unknown>[]
+  category: SupportNeedCategory
+  morning_section: MorningSection | null
+  priority: number
+  status: SupportNeedStatus
+  expires_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface OrbitaQuestion {
+  id: string
+  user_id: string
+  question: string
+  reason: string
+  target_field: string
+  expected_improvement: string | null
+  status: QuestionStatus
+  answer: string | null
+  processed: boolean
+  expires_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ReflectionMemory {
+  id: string
+  user_id: string
+  memory_type: ReflectionType
+  content: string
+  source_memory_id: string | null
+  confidence: number
+  source_type: SourceType
+  active: boolean
+  created_at: string
+  updated_at: string
+}

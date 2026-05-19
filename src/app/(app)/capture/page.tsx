@@ -65,7 +65,7 @@ export default function CapturePage() {
 
       {/* Helpful hint */}
       <p className="text-center text-[11px] text-slate-300 mt-4">
-        Continuum will automatically spot people, promises, and context from what you capture
+        Orbita will automatically spot people, promises, and context from what you capture
       </p>
     </div>
   )
