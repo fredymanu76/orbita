@@ -489,6 +489,18 @@ export interface ThreadEntity {
   created_at: string
 }
 
+// --- Intent Router Types ---
+
+export type InputIntent = 'capture' | 'ask' | 'reflect' | 'converse' | 'action'
+
+export interface IntentRouterResult {
+  intent: InputIntent
+  confidence: number
+  should_store: boolean
+  response_needed: boolean
+  reasoning: string
+}
+
 // --- Self Model Engine Types ---
 
 export type PersonaMode = 'carer' | 'worker' | 'parent' | 'founder' | 'faith_community' | 'student' | 'general'
