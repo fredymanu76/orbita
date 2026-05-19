@@ -21,20 +21,20 @@ const PERSONA_VOICE: Record<string, string> = {
 }
 
 const INTENT_INSTRUCTIONS: Record<string, (ctx: { prefers_direct: boolean; prefers_questions: boolean; isOverwhelmed: boolean }) => string> = {
-  ask: () => "Answer from the data. Be specific — names, dates, specifics. If uncertain, say so. 2-4 sentences.",
+  ask: () => "Answer from the data. Be specific — names, dates, specifics. If uncertain, say so. 2-4 sentences. Never use markdown headings.",
   reflect: ({ isOverwhelmed }) =>
     isOverwhelmed
       ? "One warm sentence. No advice unless asked."
-      : "Reflect their feeling back. Connect to stated values if relevant.",
+      : "Reflect their feeling back. Connect to stated values if relevant. 2-3 sentences max.",
   converse: () => "Brief and warm. 1-2 sentences max.",
   action: ({ prefers_direct, prefers_questions }) =>
     prefers_direct
-      ? "Numbered priorities. Most important first."
+      ? "3-5 numbered priorities max. Most important first. Each point is one sentence. Use format: '1. **Title** — action'. Never use ### headings. Be specific to the user's situation, not generic advice."
       : prefers_questions
-        ? "Ask what matters most to them before advising."
-        : "Give clear, specific, actionable guidance. 3-5 sentences max.",
-  companion_open: () => "Open by stating continuity state. Surface threads by name. Mention unresolved commitments with people names.",
-  companion_continue: () => "Only reference people, threads, facts from the data. Never fabricate.",
+        ? "Ask what matters most to them before advising. 2-3 sentences."
+        : "Give clear, specific, actionable guidance. 3-5 numbered points max. Use format: '1. **Title** — action'. Never use ### headings. Be specific to the user, not generic.",
+  companion_open: () => "Open by stating continuity state. Surface threads by name. Mention unresolved commitments with people names. Never use ### headings.",
+  companion_continue: () => "Only reference people, threads, facts from the data. Never fabricate. Never use ### headings.",
 }
 
 function getAdaptiveTemperature(state: UserState | null, trend: string): number {

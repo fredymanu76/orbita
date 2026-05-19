@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react'
 
-/** Parse simple markdown-like text into formatted React elements */
+/** Parse markdown text into well-formatted React elements */
 export function FormattedMessage({ content, isUser = false }: { content: string; isUser?: boolean }) {
   const elements = useMemo(() => {
     const lines = content.split('\n')
@@ -13,7 +13,7 @@ export function FormattedMessage({ content, isUser = false }: { content: string;
     function flushList() {
       if (listItems.length > 0) {
         result.push(
-          <ul key={`list-${listKey++}`} className="space-y-1 my-2 ml-1">
+          <ul key={`list-${listKey++}`} className="space-y-1.5 my-2">
             {listItems}
           </ul>
         )
@@ -22,18 +22,14 @@ export function FormattedMessage({ content, isUser = false }: { content: string;
     }
 
     function parseInline(text: string): React.ReactNode {
-      // Replace **bold** and inline `code`
       const parts: React.ReactNode[] = []
       let remaining = text
       let key = 0
 
       while (remaining.length > 0) {
-        // Bold
         const boldMatch = remaining.match(/\*\*(.+?)\*\*/)
-        // Inline code
         const codeMatch = remaining.match(/`(.+?)`/)
 
-        // Find the earliest match
         let earliest: { type: 'bold' | 'code'; match: RegExpMatchArray } | null = null
         if (boldMatch && boldMatch.index !== undefined) {
           earliest = { type: 'bold', match: boldMatch }
@@ -49,7 +45,6 @@ export function FormattedMessage({ content, isUser = false }: { content: string;
           break
         }
 
-        // Text before the match
         if (earliest.match.index > 0) {
           parts.push(remaining.substring(0, earliest.match.index))
         }
@@ -76,27 +71,62 @@ export function FormattedMessage({ content, isUser = false }: { content: string;
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i]
+      const trimmed = line.trim()
 
-      // Numbered list: "1. text" or "2. text"
-      const numberedMatch = line.match(/^(\d+)\.\s+(.+)/)
-      if (numberedMatch) {
+      // --- Markdown headings: # / ## / ### ---
+      // Numbered heading: ### 1. Title or ## 1. Title
+      const numberedHeadingMatch = trimmed.match(/^#{1,3}\s+(\d+)\.\s+(.+)/)
+      if (numberedHeadingMatch) {
         flushList()
+        result.push(
+          <div key={`nh-${i}`} className="flex items-center gap-2.5 mt-3 mb-1.5 first:mt-0">
+            <span className="flex-shrink-0 w-6 h-6 rounded-full bg-indigo-100 text-indigo-600 text-xs font-bold flex items-center justify-center">
+              {numberedHeadingMatch[1]}
+            </span>
+            <span className="font-semibold text-sm text-slate-800">
+              {parseInline(numberedHeadingMatch[2])}
+            </span>
+          </div>
+        )
+        continue
+      }
+
+      // Plain heading: ### Title or ## Title or # Title
+      const headingMatch = trimmed.match(/^(#{1,3})\s+(.+)/)
+      if (headingMatch) {
+        flushList()
+        const level = headingMatch[1].length
+        const sizes = { 1: 'text-base font-bold', 2: 'text-sm font-bold', 3: 'text-sm font-semibold' }
+        result.push(
+          <p key={`h-${i}`} className={`${sizes[level as 1 | 2 | 3] || sizes[3]} text-slate-800 mt-3 mb-1 first:mt-0`}>
+            {parseInline(headingMatch[2])}
+          </p>
+        )
+        continue
+      }
+
+      // Numbered list: "1. text" or "2. text" (not preceded by #)
+      const numberedMatch = trimmed.match(/^(\d+)\.\s+(.+)/)
+      if (numberedMatch) {
         listItems.push(
-          <li key={`li-${i}`} className="flex gap-2 text-sm">
-            <span className={`font-medium flex-shrink-0 w-5 text-right ${isUser ? 'text-slate-300' : 'text-indigo-400'}`}>{numberedMatch[1]}.</span>
-            <span>{parseInline(numberedMatch[2])}</span>
+          <li key={`li-${i}`} className="flex gap-2.5 text-sm">
+            <span className="flex-shrink-0 w-5 h-5 rounded-full bg-indigo-50 text-indigo-500 text-xs font-semibold flex items-center justify-center mt-0.5">
+              {numberedMatch[1]}
+            </span>
+            <span className="leading-relaxed">{parseInline(numberedMatch[2])}</span>
           </li>
         )
         continue
       }
 
-      // Bullet list
-      if (line.startsWith('- ') || line.startsWith('• ')) {
-        const text = line.replace(/^[-•]\s+/, '')
+      // Bullet list (including indented)
+      const bulletMatch = trimmed.match(/^[-•]\s+(.+)/)
+      if (bulletMatch) {
+        const isIndented = line.startsWith('  ') || line.startsWith('\t')
         listItems.push(
-          <li key={`li-${i}`} className="flex gap-2 text-sm">
-            <span className={`flex-shrink-0 mt-1.5 w-1.5 h-1.5 rounded-full ${isUser ? 'bg-slate-300' : 'bg-indigo-300'}`} />
-            <span>{parseInline(text)}</span>
+          <li key={`li-${i}`} className={`flex gap-2 text-sm ${isIndented ? 'ml-4' : ''}`}>
+            <span className={`flex-shrink-0 mt-2 w-1.5 h-1.5 rounded-full ${isUser ? 'bg-slate-300' : 'bg-indigo-300'}`} />
+            <span className="leading-relaxed">{parseInline(bulletMatch[1])}</span>
           </li>
         )
         continue
@@ -105,16 +135,16 @@ export function FormattedMessage({ content, isUser = false }: { content: string;
       flushList()
 
       // Empty line
-      if (line.trim() === '') {
-        result.push(<div key={`br-${i}`} className="h-2" />)
+      if (trimmed === '') {
+        result.push(<div key={`br-${i}`} className="h-1.5" />)
         continue
       }
 
-      // Heading-like: whole line is bold
-      if (line.startsWith('**') && line.endsWith('**')) {
+      // Whole line bold (heading-like)
+      if (trimmed.startsWith('**') && trimmed.endsWith('**') && !trimmed.slice(2, -2).includes('**')) {
         result.push(
-          <p key={`h-${i}`} className={`font-semibold mb-1 ${isUser ? '' : 'text-slate-800'}`}>
-            {line.slice(2, -2)}
+          <p key={`bh-${i}`} className="font-semibold text-sm text-slate-800 mt-2 mb-1 first:mt-0">
+            {trimmed.slice(2, -2)}
           </p>
         )
         continue
@@ -123,7 +153,7 @@ export function FormattedMessage({ content, isUser = false }: { content: string;
       // Regular paragraph
       result.push(
         <p key={`p-${i}`} className="text-sm mb-1 leading-relaxed">
-          {parseInline(line)}
+          {parseInline(trimmed)}
         </p>
       )
     }
@@ -132,5 +162,5 @@ export function FormattedMessage({ content, isUser = false }: { content: string;
     return result
   }, [content, isUser])
 
-  return <div>{elements}</div>
+  return <div className="space-y-0.5">{elements}</div>
 }
