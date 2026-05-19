@@ -6,6 +6,7 @@ import { processMemory } from '@/lib/pipeline/process-memory'
 import { generateEmbedding } from '@/lib/ai/embeddings'
 import { getOpenAIClient } from '@/lib/ai/openai'
 import { buildVoiceContext } from '@/lib/cognition/voice-engine'
+import { determineIntervention } from '@/lib/cognition/intervention-engine'
 
 export const maxDuration = 60
 
@@ -246,6 +247,25 @@ async function handleReflect(userId: string, content: string, reasoning: string)
     console.error('Reflect memory processing failed:', memory.id, err)
   })
 
+  // Get user state for intervention engine
+  const { data: userState } = await admin
+    .from('user_state')
+    .select('current_state, state_confidence')
+    .eq('user_id', userId)
+    .single()
+
+  const currentState = (userState?.current_state || null) as import('@/lib/types').UserState | null
+
+  // Intervention engine determines how to respond to emotional input
+  const intervention = determineIntervention({
+    intent: 'reflect',
+    userInput: content,
+    currentState,
+    overloadScore: 0.3,
+    openLoopCount: 0,
+    unresolvedCommitments: 0,
+  })
+
   // Build context for empathetic response
   const { data: recentMemories } = await admin
     .from('memory_items')
@@ -256,7 +276,7 @@ async function handleReflect(userId: string, content: string, reasoning: string)
     .limit(5)
 
   const contextParts: string[] = []
-  if (recentMemories && recentMemories.length > 0) {
+  if (recentMemories && recentMemories.length > 0 && intervention.memory_scope !== 'none') {
     contextParts.push('Recent context:')
     for (const m of recentMemories) {
       if (m.summary) {
@@ -265,7 +285,7 @@ async function handleReflect(userId: string, content: string, reasoning: string)
     }
   }
 
-  const voice = await buildVoiceContext(userId, 'reflect')
+  const voice = await buildVoiceContext(userId, 'reflect', intervention)
 
   const openai = getOpenAIClient()
   const completion = await openai.chat.completions.create({
@@ -273,7 +293,9 @@ async function handleReflect(userId: string, content: string, reasoning: string)
     messages: [
       {
         role: 'system',
-        content: `${voice.systemPrompt}\n\n${contextParts.join('\n')}`,
+        content: contextParts.length > 0
+          ? `${voice.systemPrompt}\n\n${contextParts.join('\n')}`
+          : voice.systemPrompt,
       },
       { role: 'user', content },
     ],
@@ -359,14 +381,14 @@ async function handleConverse(userId: string, content: string, reasoning: string
 
 /**
  * ACTION — provide guidance based on the user's current data.
- * Searches for context, then gives actionable advice.
+ * Routes through the Intervention Engine to determine response strategy.
  */
 async function handleAction(userId: string, query: string, reasoning: string) {
   const admin = createAdminClient()
 
-  // Gather the user's current state — all queries in parallel
+  // Gather state + data in parallel
   const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString()
-  const [commitmentsRes, threadsRes, stateRes, emotionalRes, patternsRes] = await Promise.all([
+  const [commitmentsRes, threadsRes, stateRes, emotionalRes, patternsRes, continuityRes] = await Promise.all([
     admin
       .from('commitments')
       .select('description, status, direction, due_date, importance, people(name)')
@@ -400,6 +422,12 @@ async function handleAction(userId: string, query: string, reasoning: string) {
       .in('status', ['confirmed', 'established'])
       .order('confidence', { ascending: false })
       .limit(8),
+    admin
+      .from('continuity_snapshots')
+      .select('continuity_score, state')
+      .eq('user_id', userId)
+      .order('snapshot_date', { ascending: false })
+      .limit(1),
   ])
 
   const commitments = commitmentsRes.data || []
@@ -407,48 +435,71 @@ async function handleAction(userId: string, query: string, reasoning: string) {
   const userState = stateRes.data
   const emotionalReadings = emotionalRes.data || []
   const patterns = patternsRes.data || []
+  const latestContinuity = continuityRes.data?.[0]
 
+  const currentState = (userState?.current_state || null) as import('@/lib/types').UserState | null
+  const overloadScore = latestContinuity
+    ? 1 - (latestContinuity.continuity_score || 0.5)
+    : 0.3
+
+  // --- Intervention Engine ---
+  const intervention = determineIntervention({
+    intent: 'action',
+    userInput: query,
+    currentState,
+    overloadScore,
+    openLoopCount: threads.length,
+    unresolvedCommitments: commitments.length,
+  })
+
+  // --- Build context based on intervention memory_scope ---
   const contextParts: string[] = []
 
   if (userState) {
     contextParts.push(`User's inferred state: ${userState.current_state} (confidence: ${Math.round(userState.state_confidence * 100)}%)`)
   }
 
-  if (emotionalReadings.length > 0) {
-    contextParts.push('\nRecent emotional readings:')
-    for (const r of emotionalReadings) {
-      const date = new Date(r.measured_at).toLocaleDateString()
-      contextParts.push(`- ${r.emotion_label} (valence: ${r.valence?.toFixed(1)}, intensity: ${r.intensity?.toFixed(1)}) on ${date}`)
-    }
-  }
+  // memory_scope controls how much data we surface
+  if (intervention.memory_scope !== 'none') {
+    const commitmentLimit = intervention.should_reduce_scope ? 3 : commitments.length
+    const threadLimit = intervention.should_reduce_scope ? 3 : threads.length
 
-  if (patterns.length > 0) {
-    contextParts.push('\nObserved patterns:')
-    for (const p of patterns) {
-      contextParts.push(`- [${p.pattern_type}] ${p.title}: ${p.description}`)
+    if (emotionalReadings.length > 0 && intervention.memory_scope !== 'minimal') {
+      contextParts.push('\nRecent emotional readings:')
+      for (const r of emotionalReadings.slice(0, 5)) {
+        const date = new Date(r.measured_at).toLocaleDateString()
+        contextParts.push(`- ${r.emotion_label} (valence: ${r.valence?.toFixed(1)}, intensity: ${r.intensity?.toFixed(1)}) on ${date}`)
+      }
     }
-  }
 
-  if (commitments.length > 0) {
-    contextParts.push('\nActive commitments:')
-    const today = new Date().toISOString().split('T')[0]
-    for (const c of commitments) {
-      const person = (c.people as unknown as { name: string } | null)?.name
-      const overdue = c.due_date && c.due_date < today
-      contextParts.push(`- ${c.description} (${c.direction}${overdue ? ', OVERDUE' : ''})${person ? ` with ${person}` : ''}${c.due_date ? ` due ${c.due_date}` : ''} importance: ${c.importance || 5}/10`)
+    if (patterns.length > 0 && intervention.memory_scope !== 'minimal') {
+      contextParts.push('\nObserved patterns:')
+      for (const p of patterns.slice(0, 3)) {
+        contextParts.push(`- [${p.pattern_type}] ${p.title}: ${p.description}`)
+      }
     }
-  }
 
-  if (threads.length > 0) {
-    contextParts.push('\nActive threads:')
-    for (const t of threads) {
-      contextParts.push(`- "${t.title}" (${t.status}, ${t.thread_type}, ${Math.round(t.continuity_retention * 100)}% retained, ${t.commitment_count} commitments, importance: ${t.importance}/10)`)
+    if (commitments.length > 0) {
+      contextParts.push('\nActive commitments:')
+      const today = new Date().toISOString().split('T')[0]
+      for (const c of commitments.slice(0, commitmentLimit)) {
+        const person = (c.people as unknown as { name: string } | null)?.name
+        const overdue = c.due_date && c.due_date < today
+        contextParts.push(`- ${c.description} (${c.direction}${overdue ? ', OVERDUE' : ''})${person ? ` with ${person}` : ''}${c.due_date ? ` due ${c.due_date}` : ''} importance: ${c.importance || 5}/10`)
+      }
+    }
+
+    if (threads.length > 0) {
+      contextParts.push('\nActive threads:')
+      for (const t of threads.slice(0, threadLimit)) {
+        contextParts.push(`- "${t.title}" (${t.status}, ${t.thread_type}, importance: ${t.importance}/10)`)
+      }
     }
   }
 
   const hasData = commitments.length > 0 || threads.length > 0 || patterns.length > 0 || emotionalReadings.length > 0
 
-  if (!hasData) {
+  if (!hasData && intervention.memory_scope !== 'none') {
     return NextResponse.json({
       intent: 'action',
       stored: false,
@@ -457,7 +508,8 @@ async function handleAction(userId: string, query: string, reasoning: string) {
     })
   }
 
-  const voice = await buildVoiceContext(userId, 'action')
+  // --- Build voice with intervention strategy ---
+  const voice = await buildVoiceContext(userId, 'action', intervention)
 
   const openai = getOpenAIClient()
   const completion = await openai.chat.completions.create({
@@ -465,7 +517,9 @@ async function handleAction(userId: string, query: string, reasoning: string) {
     messages: [
       {
         role: 'system',
-        content: `${voice.systemPrompt}\n\n${contextParts.join('\n')}`,
+        content: contextParts.length > 0
+          ? `${voice.systemPrompt}\n\n${contextParts.join('\n')}`
+          : voice.systemPrompt,
       },
       { role: 'user', content: query },
     ],
@@ -480,5 +534,7 @@ async function handleAction(userId: string, query: string, reasoning: string) {
     stored: false,
     response,
     _routing: reasoning,
+    _intervention: intervention.intervention,
+    _goal: intervention.goal,
   })
 }

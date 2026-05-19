@@ -1,6 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getEmotionalTrajectory } from './emotional-mapping'
-import type { InputIntent, UserState } from '@/lib/types'
+import type { InputIntent, UserState, InterventionStrategy } from '@/lib/types'
 
 export interface VoiceContext {
   systemPrompt: string
@@ -61,7 +61,8 @@ function getAdaptiveMaxTokens(
  */
 export async function buildVoiceContext(
   userId: string,
-  intent: VoiceIntent = 'converse'
+  intent: VoiceIntent = 'converse',
+  intervention?: InterventionStrategy
 ): Promise<VoiceContext> {
   const supabase = createAdminClient()
 
@@ -179,20 +180,33 @@ export async function buildVoiceContext(
   const voiceLayer = PERSONA_VOICE[persona] || PERSONA_VOICE.general
   blocks.push(voiceLayer)
 
-  // INTENT INSTRUCTIONS
-  const isOverwhelmed = currentState === 'overwhelmed'
-  const intentFn = INTENT_INSTRUCTIONS[intent]
-  if (intentFn) {
-    blocks.push(intentFn({
-      prefers_direct: supportStyle?.prefers_direct ?? true,
-      prefers_questions: supportStyle?.prefers_questions ?? false,
-      isOverwhelmed,
-    }))
+  // INTERVENTION or INTENT INSTRUCTIONS
+  if (intervention) {
+    // Intervention engine takes over — its instruction replaces default intent instructions
+    blocks.push(`INTERVENTION GOAL: ${intervention.goal}`)
+    blocks.push(intervention.response_instruction)
+    blocks.push(`Never use ### headings. Maximum ${intervention.max_points} points. Maximum ~${intervention.max_words} words.`)
+  } else {
+    const isOverwhelmed = currentState === 'overwhelmed'
+    const intentFn = INTENT_INSTRUCTIONS[intent]
+    if (intentFn) {
+      blocks.push(intentFn({
+        prefers_direct: supportStyle?.prefers_direct ?? true,
+        prefers_questions: supportStyle?.prefers_questions ?? false,
+        isOverwhelmed,
+      }))
+    }
   }
 
   const systemPrompt = blocks.join('\n\n')
-  const temperature = getAdaptiveTemperature(currentState, trajectory.trend)
-  const maxTokens = getAdaptiveMaxTokens(currentState, intent)
+
+  // Intervention overrides temperature and maxTokens
+  const temperature = intervention
+    ? (intervention.tone === 'calm' ? 0.2 : intervention.tone === 'warm' ? 0.3 : 0.25)
+    : getAdaptiveTemperature(currentState, trajectory.trend)
+  const maxTokens = intervention
+    ? Math.max(80, Math.round(intervention.max_words * 1.5))
+    : getAdaptiveMaxTokens(currentState, intent)
 
   return { systemPrompt, temperature, maxTokens }
 }

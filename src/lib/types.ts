@@ -502,6 +502,43 @@ export interface IntentRouterResult {
   reasoning: string
 }
 
+// --- Intervention Engine Types ---
+
+export type InterventionType =
+  | 'reduce_overwhelm'
+  | 'prioritize'
+  | 'emotional_regulation'
+  | 'momentum_support'
+  | 'clarification'
+  | 'social_reconnection'
+  | 'burnout_detection'
+  | 'avoidance_detection'
+  | 'general_guidance'
+
+export type StateTransitionGoal =
+  | 'overwhelmed→calmer'
+  | 'fragmented→focused'
+  | 'avoidant→engaged'
+  | 'stuck→moving'
+  | 'isolated→connected'
+  | 'drifting→anchored'
+  | 'stressed→stabilised'
+  | 'in_flow→sustained'
+  | 'stable→stable'
+
+export interface InterventionStrategy {
+  intervention: InterventionType
+  goal: StateTransitionGoal
+  max_points: number
+  max_words: number
+  tone: 'warm' | 'calm' | 'direct' | 'encouraging' | 'grounding'
+  memory_scope: 'none' | 'minimal' | 'selective' | 'full'
+  should_ask_question: boolean
+  should_reduce_scope: boolean
+  response_instruction: string
+  reasoning: string
+}
+
 // --- Self Model Engine Types ---
 
 export type PersonaMode = 'carer' | 'worker' | 'parent' | 'founder' | 'faith_community' | 'student' | 'general'
