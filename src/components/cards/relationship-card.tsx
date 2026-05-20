@@ -8,6 +8,7 @@ interface RelationshipCardProps {
   person: Person
   daysSince?: number | null
   compact?: boolean
+  narrative?: string
 }
 
 function getRecencyRing(days: number | null | undefined): string {
@@ -24,12 +25,26 @@ function getRecencyBg(days: number | null | undefined): string {
   return 'bg-blue-50 text-blue-500'
 }
 
-export function RelationshipCard({ person, daysSince, compact = false }: RelationshipCardProps) {
+export function RelationshipCard({ person, daysSince, compact = false, narrative }: RelationshipCardProps) {
   const days = daysSince ?? (person.last_mentioned_at
     ? Math.floor((Date.now() - new Date(person.last_mentioned_at).getTime()) / 86400000)
     : null)
 
   if (compact) {
+    // Narrative mode: relational line instead of bare metadata
+    if (narrative) {
+      return (
+        <Link href={`/people/${person.id}`}>
+          <div className="flex items-center gap-3 group cursor-pointer py-1.5">
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium ring-2 ${getRecencyRing(days)} ${getRecencyBg(days)} shrink-0 transition-transform group-hover:scale-105`}>
+              {person.name[0]}
+            </div>
+            <p className="text-xs text-slate-500 group-hover:text-slate-600 transition-colors">{narrative}</p>
+          </div>
+        </Link>
+      )
+    }
+
     return (
       <Link href={`/people/${person.id}`}>
         <div className="flex flex-col items-center cursor-pointer group" title={person.name}>

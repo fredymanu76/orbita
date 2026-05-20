@@ -211,7 +211,7 @@ function CognitiveStateCard({
           <>
             <span className="text-slate-200">|</span>
             <span className="text-xs text-slate-400">
-              {stabilization.score}% coherence {stabilizationTrendArrow(stabilization.trend)}
+              {stabilization.narrativeLine.toLowerCase().replace(/\.$/, '')} {stabilizationTrendArrow(stabilization.trend)}
             </span>
           </>
         )}
@@ -285,17 +285,10 @@ function PressureSignalsSection({ signals }: { signals: NonNullable<MorningSynth
 // ============================================================
 
 function StabilizationBar({ score }: { score: NonNullable<MorningSynthesis['stabilizationScore']> }) {
-  const barColor = score.score > 75 ? 'bg-emerald-400' : score.score > 50 ? 'bg-amber-400' : score.score > 25 ? 'bg-orange-400' : 'bg-red-400'
-
   return (
-    <div className="space-y-1.5">
-      <div className="flex items-center gap-2">
-        <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-          <div className={`h-full rounded-full ${barColor}`} style={{ width: `${score.score}%` }} />
-        </div>
-        <span className="text-xs text-slate-400">{stabilizationTrendArrow(score.trend)}</span>
-      </div>
-      <p className="text-xs text-slate-400">{score.narrativeLine}</p>
+    <div className="flex items-center gap-3 text-xs text-slate-400 py-2 px-3 rounded-lg bg-slate-50/50">
+      <span className="text-base leading-none">{stabilizationTrendArrow(score.trend)}</span>
+      <span className="flex-1">{score.narrativeLine}</span>
     </div>
   )
 }

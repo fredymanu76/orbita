@@ -72,6 +72,39 @@ const STATE_HEADLINES: Record<UserState, string> = {
   stretched: "You've got a full plate.",
 }
 
+// Nuanced headlines when state and emotional trajectory contradict
+function buildHeadline(
+  state: UserState,
+  emotionalTrend: string,
+  dominantSignal: string,
+  loadScore: number,
+): string {
+  // Positive state but emotional signals declining — acknowledge both
+  if ((state === 'in_flow' || state === 'stable') && emotionalTrend === 'declining') {
+    if (dominantSignal === 'stress' || dominantSignal === 'frustration') {
+      return "You're holding things together, though the emotional load has been rising."
+    }
+    return "You're maintaining momentum, but strain is beginning to accumulate."
+  }
+
+  // Positive state but elevated/high cognitive load
+  if ((state === 'in_flow' || state === 'stable') && loadScore >= 0.7) {
+    return "You're keeping pace, but the load is heavier than usual."
+  }
+
+  // Recovering but improving emotionally
+  if (state === 'recovering' && emotionalTrend === 'improving') {
+    return 'Things are settling, and the signals are moving in the right direction.'
+  }
+
+  // Stretched but emotional trend stable/improving
+  if (state === 'stretched' && (emotionalTrend === 'stable' || emotionalTrend === 'improving')) {
+    return "There's a lot on, but you're managing the weight."
+  }
+
+  return STATE_HEADLINES[state] || STATE_HEADLINES.stable
+}
+
 // --- Cognitive load label from score ---
 
 function loadLabel(score: number): 'low' | 'moderate' | 'elevated' | 'high' {
@@ -820,7 +853,7 @@ export async function computeMorningSynthesis(userId: string): Promise<MorningSy
   // --- Build final synthesis ---
   return {
     cognitiveNarrative: {
-      headline: STATE_HEADLINES[state] || STATE_HEADLINES.stable,
+      headline: buildHeadline(state, emotionalResult.trend, emotionalResult.dominant_signal, loadScore),
       subtext: buildSubtext(loadScore, overdueCommitments.length, continuityScore, continuityState, threads.length),
       state,
       stateConfidence,

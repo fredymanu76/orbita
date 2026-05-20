@@ -116,7 +116,7 @@ export default function DashboardPage() {
               className="flex items-center gap-1.5 text-xs font-medium text-slate-400 uppercase tracking-wider hover:text-slate-500 transition-colors"
             >
               <ChevronDown className={`h-3 w-3 transition-transform ${threadsExpanded ? 'rotate-180' : ''}`} />
-              Open loops ({activeThreads.length})
+              Still in motion ({activeThreads.length})
             </button>
             <Link href="/continuity/threads">
               <span className="text-xs text-slate-400 hover:text-slate-500 cursor-pointer flex items-center gap-1">
@@ -147,14 +147,14 @@ export default function DashboardPage() {
       {/* People — only if relational pressure section is empty (avoid duplication) */}
       {!hasRelationalPressure && peopleNeedingFollowUp.length > 0 && (
         <div>
-          <p className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-3">People</p>
-          <div className="flex gap-3 mobile-scroll-x pb-1 -mx-1 px-1">
-            {peopleNeedingFollowUp.map(person => (
+          <div className="space-y-2">
+            {peopleNeedingFollowUp.slice(0, 3).map(person => (
               <RelationshipCard
                 key={person.id}
                 person={person}
                 daysSince={person.days_since}
                 compact
+                narrative={buildPersonNarrative(person.name.split(' ')[0], person.days_since, person.mention_count)}
               />
             ))}
           </div>
@@ -175,6 +175,22 @@ export default function DashboardPage() {
       )}
     </div>
   )
+}
+
+function buildPersonNarrative(firstName: string, daysSince: number, mentionCount: number): string {
+  if (daysSince > 14 && mentionCount > 3) {
+    return `${firstName} has remained cognitively present despite little recent engagement.`
+  }
+  if (daysSince > 14) {
+    return `It's been a while since ${firstName} came up.`
+  }
+  if (daysSince > 7 && mentionCount > 5) {
+    return `${firstName}-related threads have surfaced repeatedly.`
+  }
+  if (daysSince > 7) {
+    return `${firstName} hasn't come up in over a week.`
+  }
+  return `${firstName} has been present in recent thinking.`
 }
 
 function getTimeOfDay(): string {
