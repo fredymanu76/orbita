@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { format } from 'date-fns'
 import Link from 'next/link'
 import type { MorningSynthesis } from '@/lib/types'
@@ -33,11 +34,29 @@ function trendIndicator(trend: MorningSynthesis['emotionalTrajectory']['trend'])
   }
 }
 
+// --- Stabilization trend arrow ---
+function stabilizationTrendArrow(trend: 'improving' | 'stable' | 'declining'): string {
+  switch (trend) {
+    case 'improving': return '\u2197'
+    case 'declining': return '\u2198'
+    case 'stable': return '\u2192'
+  }
+}
+
 // --- Stability bar segment ---
 function StabilitySegment({ count, total, color }: { count: number; total: number; color: string }) {
   if (count === 0 || total === 0) return null
   const width = Math.max(4, Math.round((count / total) * 100))
   return <div className={`h-2 rounded-full ${color}`} style={{ width: `${width}%` }} />
+}
+
+// --- Recovery banner color ---
+function recoveryBannerClasses(mode: 'overloaded' | 'depleted' | 'fatigued'): string {
+  switch (mode) {
+    case 'overloaded': return 'bg-red-50 border-red-200 text-red-700'
+    case 'depleted': return 'bg-violet-50 border-violet-200 text-violet-700'
+    case 'fatigued': return 'bg-slate-50 border-slate-200 text-slate-600'
+  }
 }
 
 // ============================================================
@@ -49,7 +68,7 @@ interface MorningBriefingProps {
 }
 
 export function MorningBriefing({ synthesis }: MorningBriefingProps) {
-  const { dataCompleteness } = synthesis
+  const { dataCompleteness, recoveryIntelligence } = synthesis
 
   // Empty state — new user
   if (dataCompleteness === 'empty') {
@@ -66,50 +85,149 @@ export function MorningBriefing({ synthesis }: MorningBriefingProps) {
     )
   }
 
+  const suppressed = new Set(recoveryIntelligence?.suppressedSections ?? [])
+
+  // --- Max 3 visible signal sections (slots) ---
+  // Priority: FocusCard (1), PressureSignals (2), StabilizationScore/EmotionalTrajectory/IdentitySnapshot (3)
+  const slots: React.ReactNode[] = []
+
+  // Slot 1: FocusCard
+  if (synthesis.focusRecommendation) {
+    slots.push(<FocusCard key="focus" recommendation={synthesis.focusRecommendation} />)
+  }
+
+  // Slot 2: PressureSignals (only if not suppressed)
+  if (synthesis.pressureSignals && !suppressed.has('pressureSignals')) {
+    slots.push(<PressureSignalsSection key="pressure" signals={synthesis.pressureSignals} />)
+  }
+
+  // Slot 3: First available of stabilization, emotional, identity
+  if (slots.length < 3 && synthesis.stabilizationScore) {
+    slots.push(<StabilizationBar key="stabilization" score={synthesis.stabilizationScore} />)
+  }
+  if (slots.length < 3 && synthesis.emotionalTrajectory.readingCount > 0) {
+    slots.push(<EmotionalTrajectoryBar key="emotional" trajectory={synthesis.emotionalTrajectory} />)
+  }
+
+  // Cap to 3
+  const visibleSlots = slots.slice(0, 3)
+
+  // --- Collapsible detail sections (below open loops) ---
+  const detailSections: React.ReactNode[] = []
+
+  if (synthesis.relationalPressure.people.length > 0) {
+    detailSections.push(
+      <RelationalPressureRow key="relational" pressure={synthesis.relationalPressure} />
+    )
+  }
+
+  if (!suppressed.has('threadStability')) {
+    const total = synthesis.threadStability.stable.length + synthesis.threadStability.slipping.length + synthesis.threadStability.critical.length
+    if (total > 0) {
+      detailSections.push(<ThreadStabilityBar key="threads" stability={synthesis.threadStability} />)
+    }
+  }
+
+  if (synthesis.identitySnapshot && !suppressed.has('identitySnapshot')) {
+    detailSections.push(<IdentitySnapshotBar key="identity" snapshot={synthesis.identitySnapshot} />)
+  }
+
+  // Add emotional trajectory to details if it wasn't shown in slots
+  if (!visibleSlots.some(s => s !== null && typeof s === 'object' && 'key' in s && (s as React.ReactElement).key === 'emotional') && synthesis.emotionalTrajectory.readingCount > 0) {
+    detailSections.push(<EmotionalTrajectoryBar key="emotional-detail" trajectory={synthesis.emotionalTrajectory} />)
+  }
+
+  // Add stabilization to details if it wasn't shown in slots
+  if (!visibleSlots.some(s => s !== null && typeof s === 'object' && 'key' in s && (s as React.ReactElement).key === 'stabilization') && synthesis.stabilizationScore) {
+    detailSections.push(<StabilizationBar key="stabilization-detail" score={synthesis.stabilizationScore} />)
+  }
+
   return (
     <div className="space-y-6">
-      <CognitiveStateCard narrative={synthesis.cognitiveNarrative} />
-
-      {synthesis.focusRecommendation && (
-        <FocusCard recommendation={synthesis.focusRecommendation} />
+      {/* Recovery banner — always shown if active, doesn't count toward 3 */}
+      {recoveryIntelligence?.isActive && (
+        <RecoveryBanner recovery={recoveryIntelligence} />
       )}
 
-      {synthesis.emotionalTrajectory.readingCount > 0 && (
-        <EmotionalTrajectoryBar trajectory={synthesis.emotionalTrajectory} />
+      {/* Cognitive state card with inline stabilization */}
+      <CognitiveStateCard
+        narrative={synthesis.cognitiveNarrative}
+        stabilization={synthesis.stabilizationScore}
+      />
+
+      {/* Cognitive observation — always shown if not null, doesn't count toward 3 */}
+      {synthesis.cognitiveObservation && (
+        <CognitiveObservationBlock observation={synthesis.cognitiveObservation} />
       )}
 
-      {synthesis.relationalPressure.people.length > 0 && (
-        <RelationalPressureRow pressure={synthesis.relationalPressure} />
-      )}
+      {/* Max 3 signal sections */}
+      {visibleSlots}
 
-      <ThreadStabilityBar stability={synthesis.threadStability} />
+      {/* Collapsible detail sections */}
+      {detailSections.length > 0 && (
+        <DetailSection>{detailSections}</DetailSection>
+      )}
     </div>
   )
 }
 
 // ============================================================
-// CognitiveStateCard
+// RecoveryBanner
 // ============================================================
 
-function CognitiveStateCard({ narrative }: { narrative: MorningSynthesis['cognitiveNarrative'] }) {
+function RecoveryBanner({ recovery }: { recovery: NonNullable<MorningSynthesis['recoveryIntelligence']> }) {
+  return (
+    <div className={`rounded-lg border px-4 py-3 text-sm ${recoveryBannerClasses(recovery.mode)}`}>
+      {recovery.instruction}
+    </div>
+  )
+}
+
+// ============================================================
+// CognitiveStateCard (with inline stabilization)
+// ============================================================
+
+function CognitiveStateCard({
+  narrative,
+  stabilization,
+}: {
+  narrative: MorningSynthesis['cognitiveNarrative']
+  stabilization: MorningSynthesis['stabilizationScore']
+}) {
   return (
     <div>
       <h1 className="text-2xl font-semibold text-slate-800">
         {narrative.headline}
       </h1>
       <p className="text-sm text-slate-500 mt-1">{narrative.subtext}</p>
-      <div className="flex items-center gap-3 mt-2">
+      <div className="flex items-center gap-3 mt-2 flex-wrap">
         <p className="text-xs text-slate-400">{format(new Date(), 'EEEE, MMMM d')}</p>
         <span className="text-slate-200">|</span>
         <span className="flex items-center gap-1.5 text-xs text-slate-400">
           <span className={`inline-block w-1.5 h-1.5 rounded-full ${loadDotColor(narrative.cognitiveLoadLabel)}`} />
           {narrative.cognitiveLoadLabel} load
         </span>
-        <span className="text-slate-200">|</span>
-        <span className="text-xs text-slate-400">
-          {Math.round(narrative.continuityScore)}% continuity
-        </span>
+        {stabilization && (
+          <>
+            <span className="text-slate-200">|</span>
+            <span className="text-xs text-slate-400">
+              {stabilization.score}% coherence {stabilizationTrendArrow(stabilization.trend)}
+            </span>
+          </>
+        )}
       </div>
+    </div>
+  )
+}
+
+// ============================================================
+// CognitiveObservationBlock
+// ============================================================
+
+function CognitiveObservationBlock({ observation }: { observation: string }) {
+  return (
+    <div className="border-l-2 border-slate-200 pl-3">
+      <p className="text-sm text-slate-600 leading-relaxed">{observation}</p>
     </div>
   )
 }
@@ -134,6 +252,50 @@ function FocusCard({ recommendation }: { recommendation: NonNullable<MorningSynt
           {recommendation.personName}
         </span>
       )}
+    </div>
+  )
+}
+
+// ============================================================
+// PressureSignalsSection
+// ============================================================
+
+function PressureSignalsSection({ signals }: { signals: NonNullable<MorningSynthesis['pressureSignals']> }) {
+  return (
+    <div className="rounded-xl bg-slate-50/80 border border-slate-100 px-4 py-3 space-y-2">
+      <p className="text-sm text-slate-600">{signals.narrativeLine}</p>
+      <div className="space-y-1.5">
+        {signals.mentallyLoud.map(item => (
+          <div key={item.sourceId} className="flex items-center gap-2 text-xs text-slate-500">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+            <span className="flex-1">{item.description}</span>
+            {item.personName && (
+              <span className="text-[10px] bg-slate-100 text-slate-400 rounded-full px-1.5 py-0.5">{item.personName}</span>
+            )}
+          </div>
+        ))}
+      </div>
+      <p className="text-xs text-slate-400">{signals.reassurance}</p>
+    </div>
+  )
+}
+
+// ============================================================
+// StabilizationBar
+// ============================================================
+
+function StabilizationBar({ score }: { score: NonNullable<MorningSynthesis['stabilizationScore']> }) {
+  const barColor = score.score > 75 ? 'bg-emerald-400' : score.score > 50 ? 'bg-amber-400' : score.score > 25 ? 'bg-orange-400' : 'bg-red-400'
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-2">
+        <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+          <div className={`h-full rounded-full ${barColor}`} style={{ width: `${score.score}%` }} />
+        </div>
+        <span className="text-xs text-slate-400">{stabilizationTrendArrow(score.trend)}</span>
+      </div>
+      <p className="text-xs text-slate-400">{score.narrativeLine}</p>
     </div>
   )
 }
@@ -208,6 +370,36 @@ function ThreadStabilityBar({ stability }: { stability: MorningSynthesis['thread
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+// ============================================================
+// IdentitySnapshotBar
+// ============================================================
+
+function IdentitySnapshotBar({ snapshot }: { snapshot: NonNullable<MorningSynthesis['identitySnapshot']> }) {
+  return (
+    <p className="text-xs text-slate-400">{snapshot.narrativeLine}</p>
+  )
+}
+
+// ============================================================
+// DetailSection (collapsible)
+// ============================================================
+
+function DetailSection({ children }: { children: React.ReactNode }) {
+  const [open, setOpen] = useState(false)
+
+  return (
+    <div>
+      <button
+        onClick={() => setOpen(!open)}
+        className="text-xs text-slate-400 hover:text-slate-500 transition-colors"
+      >
+        {open ? 'Less detail' : 'More detail'}
+      </button>
+      {open && <div className="mt-3 space-y-4">{children}</div>}
     </div>
   )
 }

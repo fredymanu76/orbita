@@ -714,4 +714,31 @@ export interface MorningSynthesis {
     narrativeLine: string
   }
   dataCompleteness: 'full' | 'partial' | 'minimal' | 'empty'
+  cognitiveObservation: string | null
+  pressureSignals: {
+    mentallyLoud: {
+      description: string
+      sourceId: string
+      personName: string | null
+      intensity: number
+    }[]
+    reassurance: string
+    narrativeLine: string
+  } | null
+  recoveryIntelligence: {
+    isActive: boolean
+    mode: 'overloaded' | 'depleted' | 'fatigued'
+    instruction: string
+    suppressedSections: string[]
+  } | null
+  identitySnapshot: {
+    dominantRole: string | null
+    secondaryRole: string | null
+    narrativeLine: string
+  } | null
+  stabilizationScore: {
+    score: number
+    trend: 'improving' | 'stable' | 'declining'
+    narrativeLine: string
+  } | null
 }

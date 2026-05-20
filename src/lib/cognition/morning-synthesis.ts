@@ -39,6 +39,27 @@ interface FollowUpRow {
   status: string
 }
 
+interface ForgottenIntentRow {
+  id: string
+  intent_description: string
+  probability_forgotten: number
+  status: string
+}
+
+interface UserLifeProfileRow {
+  roles: { role: string; confidence: number; evidence_count: number }[]
+  active_persona: string | null
+  persona_confidence: number
+}
+
+interface StateRow {
+  current_state: string
+  state_confidence: number
+  state_signals: Record<string, unknown>[]
+  previous_state: string | null
+  state_changed_at: string
+}
+
 // --- State-to-headline mapping ---
 
 const STATE_HEADLINES: Record<UserState, string> = {
@@ -176,12 +197,295 @@ function assessCompleteness(
   return 'full'
 }
 
+// --- Cognitive Observation (Step 3) ---
+
+function buildCognitiveObservation(
+  overdueCommitments: CommitmentRow[],
+  loadScore: number,
+  emotionalTrend: string,
+  dominantSignal: string,
+  patterns: UserPattern[],
+  forgottenIntents: ForgottenIntentRow[],
+  threads: ThreadRow[],
+  state: UserState,
+  getPersonFromRow: (c: CommitmentRow) => { id: string; name: string } | null,
+): string | null {
+  // Overdue commitment with person + elevated load
+  const overdueWithPerson = overdueCommitments.filter(c => getPersonFromRow(c))
+  if (overdueWithPerson.length > 0 && loadScore > 0.5) {
+    const person = getPersonFromRow(overdueWithPerson[0])!
+    return `${person.name} feels mentally louder than the other commitments right now.`
+  }
+
+  // Emotional trend declining + dominant signal
+  if (emotionalTrend === 'declining' && dominantSignal !== 'none') {
+    return `${dominantSignal.charAt(0).toUpperCase() + dominantSignal.slice(1)} has been the dominant emotional signal recently. The pattern appears to be building.`
+  }
+
+  // Avoidance pattern — soft observation, not accusation
+  const avoidancePattern = patterns.find(p => {
+    const refs = p.evidence_refs || []
+    return refs.some((r: Record<string, unknown>) => {
+      const score = r.avoidance_signal as number | undefined
+      return score !== undefined && score > 0.4
+    })
+  })
+  if (avoidancePattern) {
+    const refs = avoidancePattern.evidence_refs || []
+    const personRef = refs.find((r: Record<string, unknown>) => r.person_name) as Record<string, unknown> | undefined
+    const name = (personRef?.person_name as string) || avoidancePattern.title
+    return `${name} has remained cognitively present despite little recent engagement.`
+  }
+
+  // Forgotten intent with high probability
+  const highProbForgotten = forgottenIntents.find(f => f.probability_forgotten > 0.6)
+  if (highProbForgotten) {
+    return `Something may have slipped off your radar \u2014 ${highProbForgotten.intent_description}.`
+  }
+
+  // Many threads + moderate load
+  if (threads.length > 5 && loadScore > 0.3) {
+    return 'Several threads are running concurrently. The background hum is elevated.'
+  }
+
+  // Recovering state
+  if (state === 'recovering') {
+    return 'Things appear to be settling after a heavier period.'
+  }
+
+  return null
+}
+
+// --- Pressure Signals (Step 4) ---
+
+function buildPressureSignals(
+  overdueCommitments: CommitmentRow[],
+  forgottenIntents: ForgottenIntentRow[],
+  threads: ThreadRow[],
+  criticalThreads: { id: string; title: string }[],
+  getPersonFromRow: (c: CommitmentRow) => { id: string; name: string } | null,
+): MorningSynthesis['pressureSignals'] {
+  const mentallyLoud: NonNullable<MorningSynthesis['pressureSignals']>['mentallyLoud'] = []
+
+  // Overdue commitments with person — relational obligations weigh disproportionately
+  for (const c of overdueCommitments) {
+    const person = getPersonFromRow(c)
+    if (person) {
+      const intensity = Math.min(1, (c.importance ?? 5) / 10 + 0.3)
+      mentallyLoud.push({
+        description: c.description,
+        sourceId: c.id,
+        personName: person.name,
+        intensity,
+      })
+    }
+  }
+
+  // Forgotten intents with probability > 0.5
+  for (const f of forgottenIntents) {
+    if (f.probability_forgotten > 0.5) {
+      mentallyLoud.push({
+        description: f.intent_description,
+        sourceId: f.id,
+        personName: null,
+        intensity: f.probability_forgotten,
+      })
+    }
+  }
+
+  // Threads with emotionally_sensitive status
+  for (const t of threads) {
+    if (t.status === 'emotionally_sensitive') {
+      mentallyLoud.push({
+        description: t.title,
+        sourceId: t.id,
+        personName: null,
+        intensity: 0.7,
+      })
+    }
+  }
+
+  if (mentallyLoud.length === 0) return null
+
+  // Sort by intensity, cap to 2
+  mentallyLoud.sort((a, b) => b.intensity - a.intensity)
+  mentallyLoud.splice(2)
+
+  // Reassurance — always present when pressureSignals is not null
+  const hasOverdueOver7Days = overdueCommitments.some(c => {
+    if (!c.due_date) return false
+    const daysOverdue = Math.floor((Date.now() - new Date(c.due_date).getTime()) / 86400000)
+    return daysOverdue > 7
+  })
+
+  let reassurance: string
+  if (criticalThreads.length === 0 && !hasOverdueOver7Days) {
+    reassurance = 'Nothing appears critically unstable right now.'
+  } else if (hasOverdueOver7Days && criticalThreads.length === 0) {
+    reassurance = 'These are present but none appear urgent enough to destabilise.'
+  } else {
+    reassurance = 'The load is real, but you have been here before and navigated it.'
+  }
+
+  // Narrative line — compressed, 1 sentence
+  const loudest = mentallyLoud[0]
+  const narrativeLine = loudest.personName
+    ? `The ${loudest.personName} commitment appears loudest right now.`
+    : `${loudest.description} keeps resurfacing.`
+
+  return { mentallyLoud, reassurance, narrativeLine }
+}
+
+// --- Recovery Intelligence (Step 5) ---
+
+function buildRecoveryIntelligence(
+  state: UserState,
+  previousState: UserState | null,
+  loadScore: number,
+  volatility: number,
+  emotionalTrend: string,
+): MorningSynthesis['recoveryIntelligence'] {
+  // Overloaded: state=overwhelmed OR (stretched + load>0.7)
+  if (state === 'overwhelmed' || (state === 'stretched' && loadScore > 0.7)) {
+    return {
+      isActive: true,
+      mode: 'overloaded',
+      instruction: 'Only the most important thing. Everything else can wait.',
+      suppressedSections: ['pressureSignals', 'threadStability', 'identitySnapshot'],
+    }
+  }
+
+  // Depleted: recovering from overwhelmed/isolated
+  if (state === 'recovering' && (previousState === 'overwhelmed' || previousState === 'isolated')) {
+    return {
+      isActive: true,
+      mode: 'depleted',
+      instruction: 'You are coming back from a heavy period.',
+      suppressedSections: ['pressureSignals'],
+    }
+  }
+
+  // Fatigued: declining trend + load>0.5 + volatility>0.4
+  if (emotionalTrend === 'declining' && loadScore > 0.5 && volatility > 0.4) {
+    return {
+      isActive: true,
+      mode: 'fatigued',
+      instruction: 'Your signals suggest building fatigue.',
+      suppressedSections: [],
+    }
+  }
+
+  return null
+}
+
+// --- Identity Snapshot (Step 6) ---
+
+function buildIdentitySnapshot(
+  profile: UserLifeProfileRow | null,
+): MorningSynthesis['identitySnapshot'] {
+  if (!profile || !profile.roles || profile.roles.length === 0) return null
+
+  const ROLE_LABELS: Record<string, string> = {
+    parent: 'parent',
+    carer: 'carer',
+    worker: 'professional',
+    professional: 'professional',
+    founder: 'founder',
+    faith_community: 'community member',
+    student: 'student',
+  }
+
+  // Sort by confidence * log2(evidence_count + 1)
+  const scored = profile.roles
+    .map(r => ({
+      ...r,
+      score: r.confidence * Math.log2(r.evidence_count + 1),
+      label: ROLE_LABELS[r.role] || r.role,
+    }))
+    .sort((a, b) => b.score - a.score)
+
+  const dominant = scored[0]
+  const secondary = scored.length > 1 ? scored[1] : null
+
+  let narrativeLine: string
+  if (dominant.confidence > 0.5) {
+    narrativeLine = `The ${dominant.label} part of you appears most active this week.`
+    if (secondary && secondary.confidence > 0.3) {
+      narrativeLine += ` ${secondary.label.charAt(0).toUpperCase() + secondary.label.slice(1)} also present.`
+    }
+  } else {
+    narrativeLine = 'Your attention appears distributed across roles.'
+  }
+
+  return {
+    dominantRole: dominant.label,
+    secondaryRole: secondary?.label ?? null,
+    narrativeLine,
+  }
+}
+
+// --- Stabilization Score (Step 7) ---
+
+function buildStabilizationScore(
+  volatility: number,
+  overdueCount: number,
+  totalActiveCommitments: number,
+  highPressurePeopleCount: number,
+  loadScore: number,
+  continuityState: ContinuityState,
+  recentContinuityScores: number[],
+): MorningSynthesis['stabilizationScore'] {
+  // Each component is 0-1 where 1 = good
+  const volatilityComponent = (1 - Math.min(1, volatility)) * 0.25
+  const commitmentRatio = totalActiveCommitments > 0 ? overdueCount / totalActiveCommitments : 0
+  const commitmentComponent = (1 - Math.min(1, commitmentRatio)) * 0.20
+  const relationalComponent = (1 - Math.min(1, highPressurePeopleCount * 0.25)) * 0.15
+  const loadComponent = (1 - Math.min(1, loadScore)) * 0.20
+
+  const fragmentationPenalties: Record<string, number> = {
+    critical: 0.4,
+    high_discontinuity: 0.25,
+    overload_emerging: 0.15,
+    mild_fragmentation: 0.05,
+    stable: 0,
+  }
+  const penalty = fragmentationPenalties[continuityState] ?? 0
+  const fragmentationComponent = (1 - penalty) * 0.20
+
+  const score = Math.round(
+    100 * (volatilityComponent + commitmentComponent + relationalComponent + loadComponent + fragmentationComponent)
+  )
+
+  // Trend from recent continuity scores
+  let trend: 'improving' | 'stable' | 'declining' = 'stable'
+  if (recentContinuityScores.length >= 3) {
+    const recent = recentContinuityScores.slice(-3)
+    const allImproving = recent[1] > recent[0] && recent[2] > recent[1]
+    const allDeclining = recent[1] < recent[0] && recent[2] < recent[1]
+    if (allImproving) trend = 'improving'
+    else if (allDeclining) trend = 'declining'
+  }
+
+  let narrativeLine: string
+  if (score > 75) {
+    narrativeLine = 'Your signals appear coherent.'
+  } else if (score > 50) {
+    narrativeLine = 'Some fragmentation present, but nothing destabilising.'
+  } else if (score > 25) {
+    narrativeLine = 'Several signals suggest building strain.'
+  } else {
+    narrativeLine = 'Your system appears under significant pressure.'
+  }
+
+  return { score, trend, narrativeLine }
+}
+
 // --- Main synthesis function ---
 
 export async function computeMorningSynthesis(userId: string): Promise<MorningSynthesis> {
   const supabase = createAdminClient()
 
-  // Parallel data fetches — all from existing tables
+  // Parallel data fetches — all from existing tables (10 queries)
   const [
     stateRes,
     cogLoadReading,
@@ -191,10 +495,12 @@ export async function computeMorningSynthesis(userId: string): Promise<MorningSy
     emotionalResult,
     patternsRes,
     followUpsRes,
+    forgottenIntentsRes,
+    profileRes,
   ] = await Promise.all([
     supabase
       .from('user_state')
-      .select('current_state, state_confidence')
+      .select('current_state, state_confidence, state_signals, previous_state, state_changed_at')
       .eq('user_id', userId)
       .single(),
     getLatestCognitiveLoad(userId),
@@ -203,8 +509,7 @@ export async function computeMorningSynthesis(userId: string): Promise<MorningSy
       .select('continuity_score, state')
       .eq('user_id', userId)
       .order('snapshot_date', { ascending: false })
-      .limit(1)
-      .single(),
+      .limit(5),
     supabase
       .from('commitments')
       .select('id, description, status, due_date, direction, importance, person_id, person:people(id, name)')
@@ -227,17 +532,36 @@ export async function computeMorningSynthesis(userId: string): Promise<MorningSy
       .select('id, description, follow_up_due_at, status')
       .eq('user_id', userId)
       .eq('status', 'pending'),
+    supabase
+      .from('forgotten_intent_predictions')
+      .select('id, intent_description, probability_forgotten, status')
+      .eq('user_id', userId)
+      .in('status', ['predicted', 'surfaced'])
+      .gt('probability_forgotten', 0.4)
+      .order('probability_forgotten', { ascending: false })
+      .limit(5),
+    supabase
+      .from('user_life_profile')
+      .select('roles, active_persona, persona_confidence')
+      .eq('user_id', userId)
+      .single(),
   ])
 
-  const state = (stateRes.data?.current_state as UserState) || 'stable'
-  const stateConfidence = stateRes.data?.state_confidence ?? 0
+  const stateData = stateRes.data as StateRow | null
+  const state = (stateData?.current_state as UserState) || 'stable'
+  const stateConfidence = stateData?.state_confidence ?? 0
+  const previousState = (stateData?.previous_state as UserState) || null
   const loadScore = cogLoadReading?.load_score ?? 0
-  const continuityScore = continuityRes.data?.continuity_score ?? 0
-  const continuityState = (continuityRes.data?.state as ContinuityState) || 'stable'
+  const continuitySnapshots = (continuityRes.data || []) as { continuity_score: number; state: string }[]
+  const latestSnapshot = continuitySnapshots[0] ?? null
+  const continuityScore = latestSnapshot?.continuity_score ?? 0
+  const continuityState = (latestSnapshot?.state as ContinuityState) || 'stable'
   const commitments = (commitmentsRes.data || []) as unknown as CommitmentRow[]
   const threads = (threadsRes.data || []) as unknown as ThreadRow[]
   const patterns = (patternsRes.data || []) as UserPattern[]
   const followUps = (followUpsRes.data || []) as unknown as FollowUpRow[]
+  const forgottenIntents = (forgottenIntentsRes.data || []) as unknown as ForgottenIntentRow[]
+  const profile = (profileRes.data as UserLifeProfileRow) || null
 
   const todayStr = new Date().toISOString().slice(0, 10)
   const now = Date.now()
@@ -419,13 +743,22 @@ export async function computeMorningSynthesis(userId: string): Promise<MorningSy
   // --- Data completeness ---
   const dataCompleteness = assessCompleteness(
     !!stateRes.data,
-    !!continuityRes.data,
+    !!latestSnapshot,
     threads.length > 0,
     readingCount > 0,
     patterns.length > 0,
   )
 
-  // --- State-adaptive filtering ---
+  // --- Recovery intelligence (computed FIRST, before other new sections) ---
+  const recoveryIntelligence = buildRecoveryIntelligence(
+    state,
+    previousState,
+    loadScore,
+    emotionalResult.volatility,
+    emotionalResult.trend,
+  )
+
+  // --- State-adaptive filtering (existing + recovery-aware) ---
   if (state === 'overwhelmed') {
     // Only show focus + critical threads. Cap relational to 1.
     slippingThreads.length = 0
@@ -439,6 +772,50 @@ export async function computeMorningSynthesis(userId: string): Promise<MorningSy
     relationalPeople.length = 0
     slippingThreads.length = 0
   }
+
+  // Depleted mode: cap slippingThreads to 2, relationalPeople to 1
+  if (recoveryIntelligence?.mode === 'depleted') {
+    slippingThreads.splice(2)
+    relationalPeople.splice(1)
+  }
+
+  // --- Cognitive observation ---
+  const cognitiveObservation = buildCognitiveObservation(
+    overdueCommitments,
+    loadScore,
+    emotionalResult.trend,
+    emotionalResult.dominant_signal,
+    patterns,
+    forgottenIntents,
+    threads,
+    state,
+    getPersonFromRow,
+  )
+
+  // --- Pressure signals ---
+  const pressureSignals = buildPressureSignals(
+    overdueCommitments,
+    forgottenIntents,
+    threads,
+    criticalThreads,
+    getPersonFromRow,
+  )
+
+  // --- Identity snapshot ---
+  const identitySnapshot = buildIdentitySnapshot(profile)
+
+  // --- Stabilization score ---
+  const highPressureCount = relationalPeople.filter(p => p.pressure === 'high').length
+  const recentScores = continuitySnapshots.map(s => s.continuity_score)
+  const stabilizationScore = buildStabilizationScore(
+    emotionalResult.volatility,
+    overdueCommitments.length,
+    commitments.length,
+    highPressureCount,
+    loadScore,
+    continuityState,
+    recentScores,
+  )
 
   // --- Build final synthesis ---
   return {
@@ -475,5 +852,10 @@ export async function computeMorningSynthesis(userId: string): Promise<MorningSy
       ),
     },
     dataCompleteness,
+    cognitiveObservation,
+    pressureSignals,
+    recoveryIntelligence,
+    identitySnapshot,
+    stabilizationScore,
   }
 }
