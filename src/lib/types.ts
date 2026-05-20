@@ -668,3 +668,50 @@ export interface ReflectionMemory {
   created_at: string
   updated_at: string
 }
+
+// --- Morning Cognitive Synthesis ---
+
+export interface MorningSynthesis {
+  cognitiveNarrative: {
+    headline: string
+    subtext: string
+    state: UserState
+    stateConfidence: number
+    continuityScore: number
+    continuityState: ContinuityState
+    cognitiveLoadScore: number
+    cognitiveLoadLabel: 'low' | 'moderate' | 'elevated' | 'high'
+  }
+  focusRecommendation: {
+    title: string
+    reason: string
+    sourceType: string
+    sourceId: string
+    link: string
+    personName: string | null
+  } | null
+  emotionalTrajectory: {
+    trend: 'improving' | 'stable' | 'declining' | 'no_data'
+    volatility: number
+    narrativeLine: string
+    readingCount: number
+  }
+  relationalPressure: {
+    people: {
+      name: string
+      personId: string
+      pressure: 'high' | 'moderate' | 'low'
+      reason: string
+      stressAssociation: number
+      commitmentCount: number
+    }[]
+    narrativeLine: string
+  }
+  threadStability: {
+    stable: { id: string; title: string; retention: number }[]
+    slipping: { id: string; title: string; retention: number; daysSinceActivity: number }[]
+    critical: { id: string; title: string; retention: number; commitmentCount: number }[]
+    narrativeLine: string
+  }
+  dataCompleteness: 'full' | 'partial' | 'minimal' | 'empty'
+}

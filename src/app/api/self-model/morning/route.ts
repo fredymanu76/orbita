@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { computeMorningSynthesis } from '@/lib/cognition/morning-synthesis'
 import type { UserState } from '@/lib/types'
 
 const STATE_GREETINGS: Record<UserState, string> = {
@@ -20,8 +21,8 @@ export async function GET() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  // Fetch in parallel
-  const [profileRes, stateRes, needsRes, questionsRes, nameRes] = await Promise.all([
+  // Fetch in parallel (synthesis runs its own parallel queries)
+  const [profileRes, stateRes, needsRes, questionsRes, nameRes, synthesis] = await Promise.all([
     supabase
       .from('user_life_profile')
       .select('active_persona')
@@ -50,6 +51,7 @@ export async function GET() {
       .select('full_name')
       .eq('id', user.id)
       .single(),
+    computeMorningSynthesis(user.id),
   ])
 
   const state = (stateRes.data?.current_state as UserState) || 'stable'
@@ -115,5 +117,6 @@ export async function GET() {
     },
     persona,
     state,
+    synthesis,
   })
 }

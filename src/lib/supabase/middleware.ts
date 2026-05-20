@@ -31,7 +31,18 @@ export async function updateSession(request: NextRequest) {
 
   const {
     data: { user },
+    error,
   } = await supabase.auth.getUser()
+
+  // If there's an auth error (e.g. expired refresh token), clear the stale
+  // cookies so the middleware doesn't loop trying to refresh them.
+  if (error) {
+    request.cookies.getAll().forEach(({ name }) => {
+      if (name.startsWith('sb-')) {
+        supabaseResponse.cookies.delete(name)
+      }
+    })
+  }
 
   const isAuthPage =
     request.nextUrl.pathname.startsWith('/login') ||
