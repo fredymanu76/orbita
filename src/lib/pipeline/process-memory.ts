@@ -181,9 +181,16 @@ export async function processMemory(memoryId: string) {
     const embedding = await generateEmbedding(content)
     trace.push({ step: 'embedding', status: 'ok', detail: `Generated ${embedding.length}-dim embedding` })
 
-    // 7. Event type and decay
+    // 7. Event type and decay (with emotional modifier from signals)
     const eventType = inferEventType(content, entities)
-    const decayCoefficient = getEffectiveDecayCoefficient(0.05, entities.importance)
+    const avgEmotionalIntensity = entities.emotional_signals.length > 0
+      ? entities.emotional_signals.reduce((sum, s) => sum + s.intensity, 0) / entities.emotional_signals.length
+      : 0
+    const hasCommitments = entities.commitments.filter(c => verifyCommitment(c)).length > 0
+    const decayCoefficient = getEffectiveDecayCoefficient(0.05, entities.importance, {
+      emotional_charge: avgEmotionalIntensity,
+      is_unresolved: hasCommitments,
+    })
     trace.push({ step: 'event_type', status: 'ok', detail: `type=${eventType}, decay=${decayCoefficient.toFixed(4)}` })
 
     // 8. Update memory with processed data

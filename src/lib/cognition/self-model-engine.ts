@@ -2,10 +2,13 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { inferUserState, checkStrongSignals } from './state-engine'
 import { calculateRelationalGravity } from './relational-gravity'
 import { generateQuestion } from './question-generator'
+import { detectAvoidanceCycles, storeAvoidanceCycles } from './avoidance-detection'
+import { detectRecurringConflicts, storeRecurringConflicts } from './conflict-detection'
+import { trackIdentityTransitions, storeIdentityTransitions } from './identity-transitions'
 import type { ExtractedEntities, PersonaMode, UserLifeProfile } from '@/lib/types'
 
 // --- Role inference signal maps ---
-const ROLE_SIGNALS: Record<string, { keywords: string[]; relationships: string[] }> = {
+export const ROLE_SIGNALS: Record<string, { keywords: string[]; relationships: string[] }> = {
   parent: {
     keywords: ['school', 'kids', 'daughter', 'son', 'homework', 'pickup', 'nursery', 'childcare', 'bedtime', 'nappy'],
     relationships: ['daughter', 'son', 'child', 'kid'],
@@ -310,7 +313,34 @@ export async function rebuildUserProfile(userId: string): Promise<void> {
   // 8. Detect behavioral patterns from existing data
   await detectBehavioralPatterns(supabase, userId)
 
-  // 9. Decay old reflection memories if contradicted
+  // 9. Detect avoidance cycles
+  try {
+    const avoidanceCycles = await detectAvoidanceCycles(userId)
+    await storeAvoidanceCycles(userId, avoidanceCycles)
+  } catch {
+    // Non-critical — log but don't fail the rebuild
+  }
+
+  // 10. Detect recurring conflicts
+  try {
+    const conflicts = await detectRecurringConflicts(userId)
+    await storeRecurringConflicts(userId, conflicts)
+  } catch {
+    // Non-critical
+  }
+
+  // 11. Track identity transitions (only if 2+ roles)
+  const currentRoles: UserLifeProfile['roles'] = profile.roles || []
+  if (currentRoles.length >= 2) {
+    try {
+      const transitionData = await trackIdentityTransitions(userId)
+      await storeIdentityTransitions(userId, transitionData)
+    } catch {
+      // Non-critical
+    }
+  }
+
+  // 12. Decay old reflection memories if contradicted
   await supabase
     .from('reflection_memory')
     .update({ active: false, updated_at: now })

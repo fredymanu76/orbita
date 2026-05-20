@@ -669,6 +669,58 @@ export interface ReflectionMemory {
   updated_at: string
 }
 
+// --- Interface Adaptation ---
+
+export interface InterfaceState {
+  density: 'minimal' | 'reduced' | 'normal'
+  tone: 'containing' | 'warm' | 'neutral'
+  suppressed_sections: string[]
+  max_items: number
+  show_patterns: boolean
+  show_relational: boolean
+}
+
+// --- Avoidance Cycle Detection ---
+
+export interface AvoidanceCycle {
+  item_id: string
+  item_type: 'follow_up' | 'commitment' | 'thread'
+  description: string
+  deferral_count: number
+  days_in_cycle: number
+  emotional_charge: number
+  person_name: string | null
+  avoidance_score: number
+}
+
+// --- Recurring Conflict Detection ---
+
+export interface RecurringConflict {
+  person_id: string
+  person_name: string
+  topic_cluster: string[]
+  occurrence_count: number
+  average_interval_days: number
+  emotional_intensity: number
+  pattern_confidence: number
+}
+
+// --- Identity Transition Tracking ---
+
+export interface RoleTimePattern {
+  role: string
+  peak_hours: number[]
+  capture_count: number
+}
+
+export interface IdentityTransition {
+  from_role: string
+  to_role: string
+  typical_hour: number
+  frequency: number
+  emotional_cost: number
+}
+
 // --- Morning Cognitive Synthesis ---
 
 export interface MorningSynthesis {
@@ -735,10 +787,12 @@ export interface MorningSynthesis {
     dominantRole: string | null
     secondaryRole: string | null
     narrativeLine: string
+    transitions?: IdentityTransition[]
   } | null
   stabilizationScore: {
     score: number
     trend: 'improving' | 'stable' | 'declining'
     narrativeLine: string
   } | null
+  interfaceState: InterfaceState | null
 }

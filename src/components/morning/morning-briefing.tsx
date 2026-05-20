@@ -68,7 +68,7 @@ interface MorningBriefingProps {
 }
 
 export function MorningBriefing({ synthesis }: MorningBriefingProps) {
-  const { dataCompleteness, recoveryIntelligence } = synthesis
+  const { dataCompleteness, recoveryIntelligence, interfaceState } = synthesis
 
   // Empty state — new user
   if (dataCompleteness === 'empty') {
@@ -85,7 +85,10 @@ export function MorningBriefing({ synthesis }: MorningBriefingProps) {
     )
   }
 
-  const suppressed = new Set(recoveryIntelligence?.suppressedSections ?? [])
+  // Use interfaceState for suppression when available, fall back to recoveryIntelligence
+  const suppressed = new Set(
+    interfaceState?.suppressed_sections ?? recoveryIntelligence?.suppressedSections ?? []
+  )
 
   // --- Max 3 visible signal sections (slots) ---
   // Priority: FocusCard (1), PressureSignals (2), StabilizationScore/EmotionalTrajectory/IdentitySnapshot (3)

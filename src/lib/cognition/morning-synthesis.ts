@@ -1,6 +1,7 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getEmotionalTrajectory } from '@/lib/cognition/emotional-mapping'
 import { getLatestCognitiveLoad } from '@/lib/cognition/cognitive-load'
+import { computeInterfaceState, deriveRecoveryIntelligence } from '@/lib/cognition/interface-adaptation'
 import type {
   MorningSynthesis,
   UserState,
@@ -50,6 +51,7 @@ interface UserLifeProfileRow {
   roles: { role: string; confidence: number; evidence_count: number }[]
   active_persona: string | null
   persona_confidence: number
+  daily_rhythm?: Record<string, unknown> | null
 }
 
 interface StateRow {
@@ -200,7 +202,21 @@ function buildThreadNarrative(
 
 function buildRelationalNarrative(
   people: MorningSynthesis['relationalPressure']['people'],
+  conflictPatterns?: { title: string; description: string; evidence_refs: Record<string, unknown>[]; confidence: number }[],
 ): string {
+  if (people.length === 0 && (!conflictPatterns || conflictPatterns.length === 0)) return ''
+
+  // If there's a high-confidence recurring conflict, surface it
+  if (conflictPatterns && conflictPatterns.length > 0) {
+    const topConflict = conflictPatterns[0]
+    const ref = topConflict.evidence_refs[0] || {}
+    const personName = ref.person_name as string | undefined
+    const topics = ref.topic_cluster as string[] | undefined
+    if (personName && topics && topics.length > 0) {
+      return `Tension with ${personName} tends to re-emerge around ${topics.slice(0, 2).join(' and ')}.`
+    }
+  }
+
   if (people.length === 0) return ''
 
   const highCount = people.filter(p => p.pressure === 'high').length
@@ -265,8 +281,20 @@ function buildCognitiveObservation(
   })
   if (avoidancePattern) {
     const refs = avoidancePattern.evidence_refs || []
-    const personRef = refs.find((r: Record<string, unknown>) => r.person_name) as Record<string, unknown> | undefined
-    const name = (personRef?.person_name as string) || avoidancePattern.title
+    const ref = refs.find((r: Record<string, unknown>) => r.avoidance_signal) as Record<string, unknown> | undefined
+    const personName = ref?.person_name as string | undefined
+    const deferralCount = ref?.deferral_count as number | undefined
+    const description = ref?.item_type === 'commitment' || ref?.item_type === 'follow_up'
+      ? avoidancePattern.title.replace('Avoidance cycle: ', '')
+      : avoidancePattern.title
+
+    if (deferralCount && deferralCount >= 3 && personName) {
+      return `You've returned to "${description}" several times without closing it. ${personName} is connected to this.`
+    }
+    if (deferralCount && deferralCount >= 3) {
+      return `You've returned to "${description}" several times without closing it.`
+    }
+    const name = personName || description
     return `${name} has remained cognitively present despite little recent engagement.`
   }
 
@@ -370,51 +398,22 @@ function buildPressureSignals(
 }
 
 // --- Recovery Intelligence (Step 5) ---
-
-function buildRecoveryIntelligence(
-  state: UserState,
-  previousState: UserState | null,
-  loadScore: number,
-  volatility: number,
-  emotionalTrend: string,
-): MorningSynthesis['recoveryIntelligence'] {
-  // Overloaded: state=overwhelmed OR (stretched + load>0.7)
-  if (state === 'overwhelmed' || (state === 'stretched' && loadScore > 0.7)) {
-    return {
-      isActive: true,
-      mode: 'overloaded',
-      instruction: 'Only the most important thing. Everything else can wait.',
-      suppressedSections: ['pressureSignals', 'threadStability', 'identitySnapshot'],
-    }
-  }
-
-  // Depleted: recovering from overwhelmed/isolated
-  if (state === 'recovering' && (previousState === 'overwhelmed' || previousState === 'isolated')) {
-    return {
-      isActive: true,
-      mode: 'depleted',
-      instruction: 'You are coming back from a heavy period.',
-      suppressedSections: ['pressureSignals'],
-    }
-  }
-
-  // Fatigued: declining trend + load>0.5 + volatility>0.4
-  if (emotionalTrend === 'declining' && loadScore > 0.5 && volatility > 0.4) {
-    return {
-      isActive: true,
-      mode: 'fatigued',
-      instruction: 'Your signals suggest building fatigue.',
-      suppressedSections: [],
-    }
-  }
-
-  return null
-}
+// Now derived from InterfaceState via deriveRecoveryIntelligence() in interface-adaptation.ts
 
 // --- Identity Snapshot (Step 6) ---
 
+interface DailyRhythmWithTransitions {
+  peak_hours?: number[]
+  quiet_hours?: number[]
+  weekend_pattern?: string | null
+  dominant_morning_role?: string | null
+  dominant_evening_role?: string | null
+  transitions?: { from_role: string; to_role: string; typical_hour: number; frequency: number; emotional_cost: number }[]
+}
+
 function buildIdentitySnapshot(
   profile: UserLifeProfileRow | null,
+  dailyRhythm?: DailyRhythmWithTransitions | null,
 ): MorningSynthesis['identitySnapshot'] {
   if (!profile || !profile.roles || profile.roles.length === 0) return null
 
@@ -441,7 +440,14 @@ function buildIdentitySnapshot(
   const secondary = scored.length > 1 ? scored[1] : null
 
   let narrativeLine: string
-  if (dominant.confidence > 0.5) {
+
+  // Use transition data if available for richer narrative
+  if (dailyRhythm?.dominant_morning_role && dailyRhythm?.dominant_evening_role &&
+      dailyRhythm.dominant_morning_role !== dailyRhythm.dominant_evening_role) {
+    const morningLabel = ROLE_LABELS[dailyRhythm.dominant_morning_role] || dailyRhythm.dominant_morning_role
+    const eveningLabel = ROLE_LABELS[dailyRhythm.dominant_evening_role] || dailyRhythm.dominant_evening_role
+    narrativeLine = `The ${morningLabel} part of you is most active in mornings. By mid-morning, the ${eveningLabel} takes over.`
+  } else if (dominant.confidence > 0.5) {
     narrativeLine = `The ${dominant.label} part of you appears most active this week.`
     if (secondary && secondary.confidence > 0.3) {
       narrativeLine += ` ${secondary.label.charAt(0).toUpperCase() + secondary.label.slice(1)} also present.`
@@ -450,10 +456,20 @@ function buildIdentitySnapshot(
     narrativeLine = 'Your attention appears distributed across roles.'
   }
 
+  // Include transitions if available
+  const transitions = dailyRhythm?.transitions?.map(t => ({
+    from_role: t.from_role,
+    to_role: t.to_role,
+    typical_hour: t.typical_hour,
+    frequency: t.frequency,
+    emotional_cost: t.emotional_cost,
+  }))
+
   return {
     dominantRole: dominant.label,
     secondaryRole: secondary?.label ?? null,
     narrativeLine,
+    ...(transitions && transitions.length > 0 ? { transitions } : {}),
   }
 }
 
@@ -518,7 +534,7 @@ function buildStabilizationScore(
 export async function computeMorningSynthesis(userId: string): Promise<MorningSynthesis> {
   const supabase = createAdminClient()
 
-  // Parallel data fetches — all from existing tables (10 queries)
+  // Parallel data fetches — all from existing tables (11 queries)
   const [
     stateRes,
     cogLoadReading,
@@ -530,6 +546,7 @@ export async function computeMorningSynthesis(userId: string): Promise<MorningSy
     followUpsRes,
     forgottenIntentsRes,
     profileRes,
+    conflictPatternsRes,
   ] = await Promise.all([
     supabase
       .from('user_state')
@@ -575,9 +592,17 @@ export async function computeMorningSynthesis(userId: string): Promise<MorningSy
       .limit(5),
     supabase
       .from('user_life_profile')
-      .select('roles, active_persona, persona_confidence')
+      .select('roles, active_persona, persona_confidence, daily_rhythm')
       .eq('user_id', userId)
       .single(),
+    supabase
+      .from('user_patterns')
+      .select('title, description, evidence_refs, confidence')
+      .eq('user_id', userId)
+      .eq('pattern_type', 'relationship_pattern')
+      .in('status', ['emerging', 'established', 'confirmed'])
+      .order('confidence', { ascending: false })
+      .limit(3),
   ])
 
   const stateData = stateRes.data as StateRow | null
@@ -782,18 +807,19 @@ export async function computeMorningSynthesis(userId: string): Promise<MorningSy
     patterns.length > 0,
   )
 
-  // --- Recovery intelligence (computed FIRST, before other new sections) ---
-  const recoveryIntelligence = buildRecoveryIntelligence(
+  // --- Interface state (computed FIRST, drives all adaptation) ---
+  const interfaceState = computeInterfaceState(
     state,
     previousState,
     loadScore,
-    emotionalResult.volatility,
     emotionalResult.trend,
+    emotionalResult.volatility,
   )
+  const recoveryIntelligence = deriveRecoveryIntelligence(interfaceState)
 
-  // --- State-adaptive filtering (existing + recovery-aware) ---
-  if (state === 'overwhelmed') {
-    // Only show focus + critical threads. Cap relational to 1.
+  // --- State-adaptive filtering (driven by interface state) ---
+  if (interfaceState.density === 'minimal' && interfaceState.tone === 'containing') {
+    // Overwhelmed / stretched+high-load: only focus + critical threads
     slippingThreads.length = 0
     stableThreads.length = 0
     relationalPeople.splice(1)
@@ -806,8 +832,8 @@ export async function computeMorningSynthesis(userId: string): Promise<MorningSy
     slippingThreads.length = 0
   }
 
-  // Depleted mode: cap slippingThreads to 2, relationalPeople to 1
-  if (recoveryIntelligence?.mode === 'depleted') {
+  // Reduced density with warm tone (depleted): cap lists
+  if (interfaceState.density === 'reduced' && interfaceState.tone === 'warm') {
     slippingThreads.splice(2)
     relationalPeople.splice(1)
   }
@@ -835,7 +861,10 @@ export async function computeMorningSynthesis(userId: string): Promise<MorningSy
   )
 
   // --- Identity snapshot ---
-  const identitySnapshot = buildIdentitySnapshot(profile)
+  const identitySnapshot = buildIdentitySnapshot(
+    profile,
+    profile?.daily_rhythm as DailyRhythmWithTransitions | null,
+  )
 
   // --- Stabilization score ---
   const highPressureCount = relationalPeople.filter(p => p.pressure === 'high').length
@@ -871,7 +900,10 @@ export async function computeMorningSynthesis(userId: string): Promise<MorningSy
     },
     relationalPressure: {
       people: relationalPeople,
-      narrativeLine: buildRelationalNarrative(relationalPeople),
+      narrativeLine: buildRelationalNarrative(
+        relationalPeople,
+        (conflictPatternsRes.data || []) as { title: string; description: string; evidence_refs: Record<string, unknown>[]; confidence: number }[],
+      ),
     },
     threadStability: {
       stable: stableThreads,
@@ -890,5 +922,6 @@ export async function computeMorningSynthesis(userId: string): Promise<MorningSy
     recoveryIntelligence,
     identitySnapshot,
     stabilizationScore,
+    interfaceState,
   }
 }

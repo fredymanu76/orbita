@@ -175,8 +175,30 @@ export async function buildVoiceContext(
   const inPeak = Array.isArray(peakHours) && peakHours.includes(hours)
   blocks.push(`Current time: ${hours}:${minutes}, ${weekday}. ${inPeak ? 'Within their peak energy hours.' : 'Outside peak hours.'}`)
 
-  // PERSONA VOICE
-  const persona = profile?.active_persona || 'general'
+  // PERSONA VOICE — time-aware role selection
+  let persona = profile?.active_persona || 'general'
+
+  // Check if daily_rhythm has role_time_patterns for time-appropriate persona
+  const dailyRhythm = profile?.daily_rhythm as {
+    role_time_patterns?: { role: string; peak_hours: number[] }[]
+    dominant_morning_role?: string
+    dominant_evening_role?: string
+  } | null
+
+  if (dailyRhythm?.role_time_patterns && dailyRhythm.role_time_patterns.length > 0) {
+    // Find which role's peak hours include the current hour
+    const matchingPattern = dailyRhythm.role_time_patterns.find(
+      p => p.peak_hours.includes(hours)
+    )
+    if (matchingPattern && PERSONA_VOICE[matchingPattern.role]) {
+      persona = matchingPattern.role
+    } else if (hours < 12 && dailyRhythm.dominant_morning_role && PERSONA_VOICE[dailyRhythm.dominant_morning_role]) {
+      persona = dailyRhythm.dominant_morning_role
+    } else if (hours >= 17 && dailyRhythm.dominant_evening_role && PERSONA_VOICE[dailyRhythm.dominant_evening_role]) {
+      persona = dailyRhythm.dominant_evening_role
+    }
+  }
+
   const voiceLayer = PERSONA_VOICE[persona] || PERSONA_VOICE.general
   blocks.push(voiceLayer)
 
