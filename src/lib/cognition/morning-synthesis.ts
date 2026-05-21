@@ -7,6 +7,7 @@ import type {
   UserState,
   ContinuityState,
   UserPattern,
+  EmotionalReading,
 } from '@/lib/types'
 
 // Lightweight types for Supabase partial selects
@@ -258,12 +259,31 @@ function buildCognitiveObservation(
   threads: ThreadRow[],
   state: UserState,
   getPersonFromRow: (c: CommitmentRow) => { id: string; name: string } | null,
+  stateChangedAt: string | null,
+  recentReadings: EmotionalReading[],
 ): string | null {
   // Overdue commitment with person + elevated load
   const overdueWithPerson = overdueCommitments.filter(c => getPersonFromRow(c))
   if (overdueWithPerson.length > 0 && loadScore > 0.5) {
     const person = getPersonFromRow(overdueWithPerson[0])!
     return `${person.name} feels mentally louder than the other commitments right now.`
+  }
+
+  // Reconciliation check: stale negative state not reinforced recently
+  const negativeStates: UserState[] = ['overwhelmed', 'stretched', 'drifting', 'isolated']
+  if (negativeStates.includes(state) && stateChangedAt) {
+    const hoursSinceStateChange = (Date.now() - new Date(stateChangedAt).getTime()) / 3600000
+    if (hoursSinceStateChange > 24) {
+      // Check if any reading in the last 12 hours matches the dominant signal
+      const twelveHoursAgo = Date.now() - 12 * 3600000
+      const recentReinforcement = recentReadings.some(
+        r => new Date(r.measured_at).getTime() > twelveHoursAgo && r.emotion === dominantSignal
+      )
+      if (!recentReinforcement) {
+        const signalLabel = dominantSignal !== 'none' ? dominantSignal : 'pressure'
+        return `Yesterday's signals suggested elevated ${signalLabel}. Has that pressure eased?`
+      }
+    }
   }
 
   // Emotional trend declining + dominant signal
@@ -849,6 +869,8 @@ export async function computeMorningSynthesis(userId: string): Promise<MorningSy
     threads,
     state,
     getPersonFromRow,
+    stateData?.state_changed_at ?? null,
+    emotionalResult.readings,
   )
 
   // --- Pressure signals ---

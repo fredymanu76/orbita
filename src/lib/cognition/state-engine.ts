@@ -1,4 +1,5 @@
 import { createAdminClient } from '@/lib/supabase/admin'
+import { SIGNAL_VALENCE } from '@/lib/cognition/emotional-mapping'
 import type { UserState } from '@/lib/types'
 
 interface StateSignal {
@@ -233,10 +234,32 @@ export async function checkStrongSignals(
   userId: string,
   emotionalSignals: { signal_type: string; intensity: number }[]
 ): Promise<boolean> {
+  // Case 1: Any signal with intensity >= 0.8 triggers immediate recalculation
   const highIntensity = emotionalSignals.some(s => s.intensity >= 0.8)
   if (highIntensity) {
     await inferUserState(userId)
     return true
   }
+
+  // Case 2: Positive counter-signal — a moderate positive signal while in a negative state
+  const negativeStates: UserState[] = ['overwhelmed', 'stretched', 'drifting', 'isolated']
+  const hasPositiveSignal = emotionalSignals.some(
+    s => (SIGNAL_VALENCE[s.signal_type] ?? 0) > 0 && s.intensity >= 0.5
+  )
+
+  if (hasPositiveSignal) {
+    const supabase = createAdminClient()
+    const { data } = await supabase
+      .from('user_state')
+      .select('current_state')
+      .eq('user_id', userId)
+      .single()
+
+    if (data && negativeStates.includes(data.current_state as UserState)) {
+      await inferUserState(userId)
+      return true
+    }
+  }
+
   return false
 }
