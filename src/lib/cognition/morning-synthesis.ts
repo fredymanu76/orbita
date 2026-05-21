@@ -105,6 +105,11 @@ function buildHeadline(
     return "There's a lot on, but you're managing the weight."
   }
 
+  // Negative state but emotional signals improving — acknowledge the shift
+  if (['overwhelmed', 'stretched', 'drifting'].includes(state) && emotionalTrend === 'improving') {
+    return "There's still a lot in motion, but the emotional signals are shifting."
+  }
+
   return STATE_HEADLINES[state] || STATE_HEADLINES.stable
 }
 
@@ -271,6 +276,16 @@ function buildCognitiveObservation(
 
   // Reconciliation check: stale negative state not reinforced recently
   const negativeStates: UserState[] = ['overwhelmed', 'stretched', 'drifting', 'isolated']
+  if (negativeStates.includes(state)) {
+    // Check for active positive counter-signals first
+    const twelveHoursAgoPCS = Date.now() - 12 * 3600000
+    const recentPositive = recentReadings.filter(
+      r => new Date(r.measured_at).getTime() > twelveHoursAgoPCS && (r.valence ?? 0) > 0
+    )
+    if (recentPositive.length >= 2) {
+      return 'Your recent signals are more positive than your current state reflects. Things may be shifting.'
+    }
+  }
   if (negativeStates.includes(state) && stateChangedAt) {
     const hoursSinceStateChange = (Date.now() - new Date(stateChangedAt).getTime()) / 3600000
     if (hoursSinceStateChange > 24) {

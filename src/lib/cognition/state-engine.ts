@@ -176,6 +176,29 @@ export async function inferUserState(userId: string): Promise<StateInference> {
     signals.push({ signal: 'some_overdue', value: overdueCount, weight: 0.15 })
   }
 
+  // Recent emotional momentum — last 24h readings override stale structural signals
+  const oneDayAgo = new Date(now - 86400000).toISOString()
+  const recentEmotions = emotions.filter(e => e.measured_at >= oneDayAgo)
+  if (recentEmotions.length >= 2) {
+    const recentAvgValence = recentEmotions.reduce((s, e) => s + (e.valence ?? 0), 0) / recentEmotions.length
+    if (recentAvgValence > 0.3) {
+      // Recent positive signals dampen negative states
+      stateScores.overwhelmed *= 0.6
+      stateScores.stretched *= 0.6
+      stateScores.drifting *= 0.7
+      stateScores.isolated *= 0.7
+      // Boost positive states
+      stateScores.stable += 0.15
+      stateScores.in_flow += 0.1
+      signals.push({ signal: 'recent_positive_momentum', value: recentAvgValence, weight: 0.15 })
+    } else if (recentAvgValence < -0.3) {
+      // Recent negative signals dampen positive states
+      stateScores.in_flow *= 0.6
+      stateScores.stable *= 0.8
+      signals.push({ signal: 'recent_negative_momentum', value: recentAvgValence, weight: 0.15 })
+    }
+  }
+
   // Determine winning state
   let bestState: UserState = 'stable'
   let bestScore = 0

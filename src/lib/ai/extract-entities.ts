@@ -120,6 +120,8 @@ EXTRACT:
 9. emotional_signals: array of {signal_type, trigger_text, intensity}
    - signal_type must be one of: frustration, urgency, stress, concern, excitement, relief
    - trigger_text must be a direct quote from the content
+   - Map positive language (good, happy, satisfied, content, relieved, grateful, at peace, proud) to "excitement" or "relief"
+   - Map negative language (stressed, overwhelmed, frustrated, worried, anxious, exhausted) to the appropriate negative signal
    - Only include if clear textual evidence exists. Empty array is fine.
 10. intent_classifications: array of strings from: commitment, promise, unresolved_thought, concern, reflection, planning, reminder, relationship, follow_up, idea, emotional_support, admin_obligation, risk
 11. organizations: array of {name, role}
