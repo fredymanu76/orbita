@@ -105,7 +105,7 @@ export default function DashboardPage() {
       )}
 
       {/* Quick capture */}
-      <QuickCaptureBar />
+      <QuickCaptureBar onCapture={fetchData} />
 
       {/* Open loops — collapsed by default, max 3 shown */}
       {activeThreads.length > 0 && (

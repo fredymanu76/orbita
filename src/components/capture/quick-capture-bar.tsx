@@ -16,7 +16,11 @@ interface InlineResponse {
   stored: boolean
 }
 
-export function QuickCaptureBar() {
+interface QuickCaptureBarProps {
+  onCapture?: () => void
+}
+
+export function QuickCaptureBar({ onCapture }: QuickCaptureBarProps = {}) {
   const [content, setContent] = useState('')
   const [loading, setLoading] = useState(false)
   const [placeholder, setPlaceholder] = useState('Capture a thought, or ask anything...')
@@ -93,6 +97,12 @@ export function QuickCaptureBar() {
       // If it was a reflection that was also stored, note that subtly
       if (intent === 'reflect' && data.stored) {
         toast.success('Noted', { duration: 2000 })
+      }
+
+      // Re-fetch dashboard data after capture/reflect stores a memory
+      // Delay allows background processMemory (reflect intent) to complete
+      if (data.stored && onCapture) {
+        setTimeout(onCapture, 2000)
       }
     } catch {
       toast.error('Something went wrong')
